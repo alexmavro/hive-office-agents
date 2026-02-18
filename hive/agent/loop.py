@@ -23,6 +23,7 @@ from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.memory import MemoryStore
 from hive.agent.consolidation import detect_signal, consolidate
+from hive.agent.onboarding import OnboardingFlow
 from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
 from hive.session.manager import Session, SessionManager
@@ -290,8 +291,25 @@ class AgentLoop:
                                   content="New session started. Memory consolidation in progress.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 hive commands:\n/new — Start a new conversation\n/help — Show available commands")
-        
+                                  content="🐈 hive commands:\n/new — Start a new conversation\n/onboard — Set up your profile (5 min)\n/help — Show available commands")
+
+        # Onboarding: /onboard starts (or restarts) the flow
+        onboarding = OnboardingFlow(self.workspace / "memory")
+        if cmd == "/onboard":
+            response_text = onboarding.start()
+            session.add_message("user", msg.content)
+            session.add_message("assistant", response_text)
+            self.sessions.save(session)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=response_text)
+
+        # Onboarding: if active, route all messages through the flow (bypass LLM)
+        if onboarding.is_active():
+            response_text = onboarding.handle_response(msg.content)
+            session.add_message("user", msg.content)
+            session.add_message("assistant", response_text)
+            self.sessions.save(session)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=response_text)
+
         # Emergency capacity trigger: DAG-only compaction when session is very large.
         # This prevents context overflow but does NOT write to memory/ hierarchy —
         # memory writes are signal-based only (via report_task tool).
