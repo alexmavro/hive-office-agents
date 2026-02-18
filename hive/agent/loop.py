@@ -24,6 +24,7 @@ from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.memory import MemoryStore
 from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.onboarding import OnboardingFlow
+from hive.agent.admin import factory_reset, CONFIRM_PHRASE
 from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
 from hive.session.manager import Session, SessionManager
@@ -309,6 +310,39 @@ class AgentLoop:
             session.add_message("assistant", response_text)
             self.sessions.save(session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=response_text)
+
+        # Factory reset: /factory-reset shows warning; confirmation phrase executes it
+        if cmd == "/factory-reset":
+            warning = await factory_reset(
+                workspace=self.workspace,
+                templates_dir=None,  # resolved below if available
+                sessions_dir=self.workspace.parent / "sessions",
+                confirm=False,
+            )
+            session.metadata["awaiting_factory_reset_confirm"] = True
+            session.add_message("user", msg.content)
+            session.add_message("assistant", warning)
+            self.sessions.save(session)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=warning)
+
+        if session.metadata.get("awaiting_factory_reset_confirm") and msg.content.strip() == CONFIRM_PHRASE:
+            session.metadata.pop("awaiting_factory_reset_confirm")
+            # Resolve templates_dir relative to this file's package root
+            templates_dir = Path(__file__).parent.parent.parent / "templates" / "memory"
+            if not templates_dir.exists():
+                templates_dir = None
+            result = await factory_reset(
+                workspace=self.workspace,
+                templates_dir=templates_dir,
+                sessions_dir=self.workspace.parent / "sessions",
+                confirm=True,
+            )
+            # Session was wiped — re-create a fresh one for the response
+            fresh_session = self.sessions.get_or_create(key)
+            fresh_session.add_message("user", msg.content)
+            fresh_session.add_message("assistant", result)
+            self.sessions.save(fresh_session)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=result)
 
         # Emergency capacity trigger: DAG-only compaction when session is very large.
         # This prevents context overflow but does NOT write to memory/ hierarchy —
