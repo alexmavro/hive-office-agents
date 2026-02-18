@@ -22,6 +22,7 @@ from hive.agent.tools.spawn import SpawnTool
 from hive.agent.tools.cron import CronTool
 from hive.agent.memory import MemoryStore
 from hive.agent.subagent import SubagentManager
+from hive.session.dag import MessageEntry
 from hive.session.manager import Session, SessionManager
 
 
@@ -268,15 +269,15 @@ class AgentLoop:
         # Handle slash commands
         cmd = msg.content.strip().lower()
         if cmd == "/new":
-            # Capture messages before clearing (avoid race condition with background task)
-            messages_to_archive = session.messages.copy()
+            # Snapshot the current dag before clearing (clear() creates a fresh in-memory dag)
+            old_dag = session._dag
             session.clear()
             self.sessions.save(session)
             self.sessions.invalidate(session.key)
 
             async def _consolidate_and_cleanup():
                 temp_session = Session(key=session.key)
-                temp_session.messages = messages_to_archive
+                temp_session._dag = old_dag
                 await self._consolidate_memory(temp_session, archive_all=True)
 
             asyncio.create_task(_consolidate_and_cleanup())
@@ -286,7 +287,7 @@ class AgentLoop:
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 hive commands:\n/new — Start a new conversation\n/help — Show available commands")
         
-        if len(session.messages) > self.memory_window:
+        if session.message_count > self.memory_window:
             asyncio.create_task(self._consolidate_memory(session))
 
         self._set_tool_context(msg.channel, msg.chat_id)
@@ -361,40 +362,41 @@ class AgentLoop:
         )
     
     async def _consolidate_memory(self, session, archive_all: bool = False) -> None:
-        """Consolidate old messages into MEMORY.md + HISTORY.md.
+        """Consolidate old messages into MEMORY.md and a DAG CompactionEntry.
 
         Args:
-            archive_all: If True, clear all messages and reset session (for /new command).
-                       If False, only write to files without modifying session.
+            archive_all: If True, archive the entire session path (used by /new command).
+                       If False, archive only newly accumulated messages.
         """
         memory = MemoryStore(self.workspace)
+        path = session._dag.get_path()
 
         if archive_all:
-            old_messages = session.messages
+            old_entries = path
             keep_count = 0
-            logger.info(f"Memory consolidation (archive_all): {len(session.messages)} total messages archived")
+            logger.info(f"Memory consolidation (archive_all): {len(path)} entries archived")
         else:
             keep_count = self.memory_window // 2
-            if len(session.messages) <= keep_count:
-                logger.debug(f"Session {session.key}: No consolidation needed (messages={len(session.messages)}, keep={keep_count})")
+            if session.message_count <= keep_count:
+                logger.debug(f"Session {session.key}: No consolidation needed (messages={session.message_count}, keep={keep_count})")
                 return
 
-            messages_to_process = len(session.messages) - session.last_consolidated
+            messages_to_process = session.message_count - session.last_consolidated
             if messages_to_process <= 0:
-                logger.debug(f"Session {session.key}: No new messages to consolidate (last_consolidated={session.last_consolidated}, total={len(session.messages)})")
+                logger.debug(f"Session {session.key}: No new messages to consolidate (last_consolidated={session.last_consolidated}, total={session.message_count})")
                 return
 
-            old_messages = session.messages[session.last_consolidated:-keep_count]
-            if not old_messages:
+            old_entries = path[session.last_consolidated:-keep_count]
+            if not old_entries:
                 return
-            logger.info(f"Memory consolidation started: {len(session.messages)} total, {len(old_messages)} new to consolidate, {keep_count} keep")
+            logger.info(f"Memory consolidation started: {session.message_count} total, {len(old_entries)} new to consolidate, {keep_count} keep")
 
         lines = []
-        for m in old_messages:
-            if not m.get("content"):
+        for e in old_entries:
+            if not isinstance(e, MessageEntry) or not e.content:
                 continue
-            tools = f" [tools: {', '.join(m['tools_used'])}]" if m.get("tools_used") else ""
-            lines.append(f"[{m.get('timestamp', '?')[:16]}] {m['role'].upper()}{tools}: {m['content']}")
+            tools = f" [tools: {', '.join(e.tools_used)}]" if e.tools_used else ""
+            lines.append(f"[{e.timestamp[:16]}] {e.role.upper()}{tools}: {e.content}")
         conversation = "\n".join(lines)
         current_memory = memory.read_long_term()
 
@@ -431,8 +433,11 @@ Respond with ONLY valid JSON, no markdown fences."""
                 logger.warning(f"Memory consolidation: unexpected response type, skipping. Response: {text[:200]}")
                 return
 
-            if entry := result.get("history_entry"):
-                memory.append_history(entry)
+            if summary := result.get("history_entry"):
+                # Write summary as a CompactionEntry in the DAG (replaces HISTORY.md)
+                first_kept_id = path[-keep_count].id if keep_count > 0 and path else ""
+                session._dag.compact(summary=summary, first_kept_entry_id=first_kept_id)
+
             if update := result.get("memory_update"):
                 if update != current_memory:
                     memory.write_long_term(update)
@@ -440,8 +445,8 @@ Respond with ONLY valid JSON, no markdown fences."""
             if archive_all:
                 session.last_consolidated = 0
             else:
-                session.last_consolidated = len(session.messages) - keep_count
-            logger.info(f"Memory consolidation done: {len(session.messages)} messages, last_consolidated={session.last_consolidated}")
+                session.last_consolidated = session.message_count - keep_count
+            logger.info(f"Memory consolidation done: {session.message_count} messages, last_consolidated={session.last_consolidated}")
         except Exception as e:
             logger.error(f"Memory consolidation failed: {e}")
 
