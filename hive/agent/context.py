@@ -7,22 +7,25 @@ from pathlib import Path
 from typing import Any
 
 from hive.agent.memory import MemoryStore
+from hive.agent.retrieval import MemoryRetriever
 from hive.agent.skills import SkillsLoader
 
 
 class ContextBuilder:
     """
     Builds the context (system prompt + messages) for the agent.
-    
+
     Assembles bootstrap files, memory, skills, and conversation history
     into a coherent prompt for the LLM.
     """
-    
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
-    
+
+    # USER.md removed: replaced by memory/identity/ via MemoryRetriever
+    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "TOOLS.md", "IDENTITY.md"]
+
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
+        self.retriever = MemoryRetriever(workspace)
         self.skills = SkillsLoader(workspace)
     
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
@@ -45,8 +48,11 @@ class ContextBuilder:
         if bootstrap:
             parts.append(bootstrap)
         
-        # Memory context
-        memory = self.memory.get_memory_context()
+        # Memory context: query-driven retrieval from memory/ hierarchy.
+        # Falls back to legacy MEMORY.md if the hierarchy has no content.
+        memory = self.retriever.build_memory_context()
+        if not memory:
+            memory = self.memory.get_memory_context()
         if memory:
             parts.append(f"# Memory\n\n{memory}")
         
