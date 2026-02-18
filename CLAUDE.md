@@ -35,6 +35,26 @@ GitHub: `Lexi-Energy/hive-office-agents` (private)
 - Gate commits at phase boundaries: `SX GATE: description`
 - Snapshots (git tags) at critical milestones: `queen-alpha_SX_name`
 
+## Security & Secrets
+
+- All secrets (API keys, bot tokens, user IDs) live in `~/.hive/config.json` (chmod 600, outside repo)
+- NEVER commit secrets to git — not even in commit messages
+- Telegram bot: @hive_queen_alpha_bot (allowlisted to Alex only)
+- GitHub PAT: stored in git remote URL only (not in any file)
+- Audit command: `git log --all -p | grep -E '(AIzaSy|bot_token_prefix|github_pat_)' `
+
+## Session Continuity Protocol
+
+Context gets compressed and sessions restart. To stay in the loop:
+
+1. **CLAUDE.md** — read this first every session. It's the project brain.
+2. **STATUS.md** — current step, blockers, decisions, open questions.
+3. **Update both** at every gate commit and whenever something significant changes.
+4. **Commit messages** encode the step: `S1.3: ...` tells you exactly where we are.
+5. **Git log** is the ground truth: `git log --oneline` shows the full build history.
+
+Rule: if a new session can't figure out what to do next from CLAUDE.md + STATUS.md + git log, we failed at documentation.
+
 ## Repository Layout
 
 ```
@@ -99,7 +119,7 @@ S7 (emission stream) <-- last, needs everything stable
 
 | Step | Goal | Status |
 |------|------|--------|
-| **S0** | Scaffold + Telegram verified | **In progress** — repo done, deps installed, tests green. Telegram + LLM provider not yet configured. |
+| **S0** | Scaffold + Telegram verified | **COMPLETE** — gate commit `106e6a4`, tag `queen-alpha_S0_baseline` |
 | **S1** | JSONL DAG memory (replace HISTORY.md) | Not started. Spec ready in `docs/PIMONO_DAG_REFERENCE_v2.md`. |
 | **S2** | Identity/persona + Telegram diagnostics (/status /tree /budget /workers /health) | Not started |
 | **S3** | Docker executor (sandboxed Python execution, AST filter) | Not started |
@@ -113,7 +133,7 @@ S7 (emission stream) <-- last, needs everything stable
 | Role | Model | Notes |
 |------|-------|-------|
 | Builder (Claude Code) | Claude Opus via subscription | Architecture work |
-| Queen (dev/test) | Gemini 2.0 Flash via API | EUR 200 in credits, fast + cheap |
+| Queen (dev/test) | Gemini 2.5 Flash via API | EUR 200 in credits, fast + cheap |
 | Queen (production) | Gemini 2.5 Pro or Claude Sonnet | Upgrade when stable |
 | Workers | Gemini Flash or Haiku via OpenRouter | Narrow tasks, small models |
 
