@@ -120,7 +120,7 @@ S7 (emission stream) <-- last, needs everything stable
 | Step | Goal | Status |
 |------|------|--------|
 | **S0** | Scaffold + Telegram verified | **COMPLETE** — gate commit `106e6a4`, tag `queen-alpha_S0_baseline` |
-| **S1** | JSONL DAG memory (replace HISTORY.md) | Not started. Spec ready in `docs/PIMONO_DAG_REFERENCE_v2.md`. |
+| **S1** | JSONL DAG memory (replace HISTORY.md) | **COMPLETE** — gate commit pending, tag `queen-alpha_S1_dag_memory` |
 | **S2** | Identity/persona + Telegram diagnostics (/status /tree /budget /workers /health) | Not started |
 | **S3** | Docker executor (sandboxed Python execution, AST filter) | Not started |
 | **S4** | Hive manager (worker spawning, IPC, registry) | Not started. Depends on S3. |
@@ -169,7 +169,8 @@ Channel -> InboundMessage -> Bus -> Agent Loop -> LLM -> Tool Exec -> OutboundMe
 
 ### Key Systems
 - **Agent Loop** (`hive/agent/loop.py`): ReAct pattern, 20 iter cap, auto memory consolidation at 50 msgs
-- **Memory** (`hive/agent/memory.py`): MEMORY.md (LLM-updated facts) + HISTORY.md (event log) — HISTORY.md will be replaced by DAG in S1
+- **Memory** (`hive/agent/memory.py`): MEMORY.md (LLM-updated facts, persists across sessions). HISTORY.md removed — conversation history lives in DAG CompactionEntry nodes
+- **Session DAG** (`hive/session/dag.py`): JSONL tree sessions. Each message is a node with parent_id. build_context() reconstructs the branch for the LLM. compact() embeds summaries in the tree.
 - **Context** (`hive/agent/context.py`): Assembles system prompt from bootstrap files + memory + skills
 - **Providers** (`hive/providers/registry.py`): 16 providers via ProviderSpec, LiteLLM routing
 - **Tools** (`hive/agent/tools/`): exec, read/write/edit_file, list_dir, web_search/fetch, message, spawn, cron, MCP

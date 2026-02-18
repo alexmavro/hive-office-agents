@@ -1,42 +1,52 @@
 # STATUS.md
 
-## Current step: S0 (Baseline) — COMPLETE
-## Last snapshot: (none yet)
-## Last git commit: `54a72c2` — S0.2: rename nanobot to hive
+## Current step: S1 (DAG memory) — COMPLETE
+## Last git commit: `84d0485` — S1.3: update loop.py
 
-## S0 Checklist
+## S1 Checklist
 
-- [x] Nanobot source paths confirmed and documented
-- [x] Dependencies installed (Python + Node.js)
-- [x] Tests passing (55/55)
-- [x] Git repo initialized (own history, not a fork)
-- [x] GitHub remote created (Lexi-Energy/hive-office-agents, private)
-- [x] Reference docs copied into repo
-- [x] CLAUDE.md written with full project knowledge
-- [x] LLM provider configured (Gemini 2.5 Flash via API key)
-- [x] Telegram channel configured and verified (round-trip message)
-- [x] S0 GATE commit
+- [x] DagSession core module (`hive/session/dag.py`) — 13 new tests
+- [x] Wire DagSession into Session class (`hive/session/manager.py`)
+- [x] Update loop.py consolidation — remove HISTORY.md, use CompactionEntry
+- [x] Update memory.py — remove append_history() and history_file
+- [x] 68/68 tests passing
+- [x] Gateway restarted, Telegram verified live
+- [x] S1 GATE commit + tag
+
+## S0 (Complete)
+
+- [x] All S0 items — see tag `queen-alpha_S0_baseline` (commit `106e6a4`)
+
+## What changed in S1
+
+- `hive/session/dag.py` (NEW): JSONL tree sessions. Each conversation stored as an
+  append-only .jsonl file. Every message is a node with parent_id. Branching supported.
+  CompactionEntry stores summaries in-tree (replaces HISTORY.md).
+- `hive/session/manager.py`: Session.messages list → DagSession backing. add_message()
+  writes to DAG, get_history() calls build_context(). Append-only, crash-safe.
+- `hive/agent/loop.py`: 8 session.messages refs → session.message_count + _dag.get_path().
+  Consolidation writes CompactionEntry instead of HISTORY.md.
+- `hive/agent/memory.py`: Removed append_history() and history_file. MEMORY.md stays.
+- `tests/test_dag_session.py` (NEW): 13 tests covering all DagSession operations.
+- `tests/test_consolidate_offset.py`: Updated to use new DAG API.
+
+## Migration note
+
+Session files created before S1 (old flat format) are gracefully handled — old messages
+have no `type` field and are ignored by the new loader. New messages append in DAG format.
+No data migration needed (all pre-S1 sessions were dev test messages).
 
 ## Blockers
 
 - (none)
 
-## Deviations from plan
+## Next step: S2 — Identity + Telegram diagnostics
 
-- Plan assumed queen-alpha/ as a separate dir alongside nanobot. We made hive-office-agents the repo itself with nanobot inside. This is better — one project, one repo, clean version control.
-- S0 scaffold directory structure (identity/, memory/, hive/, tools/) not yet created. Will adapt to our repo layout as we build.
-- Package renamed from nanobot to hive (nanobot/ → hive/, ~/.nanobot/ → ~/.hive/, CLI: nanobot → hive)
-- Using Gemini 2.5 Flash (not 2.0 Flash as originally planned — newer model available)
-
-## Decisions made during build
-
-- Model for Queen dev/test: Gemini 2.5 Flash (gemini/gemini-2.5-flash)
-- Model for production: TBD (Gemini 2.5 Pro or Claude Sonnet)
-- Project name: hive-office-agents (not queen-alpha)
-- Package renamed: nanobot → hive (full rename, all imports updated)
-- Git identity: Lexi-Energy with GitHub noreply email
-- Telegram bot: @hive_queen_alpha_bot, allowlisted to Alex only
+Commands to implement: /status /tree /budget /workers /health
+Queen gets a stronger identity/persona in context.py.
 
 ## Open questions for next session
 
-- (none — ready for S1)
+- S2 persona: how strong should the Queen's identity be? More assertive/personality-forward?
+  Or keep the current neutral assistant style and just add the /commands?
+- Budget tracking: track Gemini API spend per day? Or defer to S6 safety rails?
