@@ -120,8 +120,8 @@ S7 (emission stream) <-- last, needs everything stable
 | Step | Goal | Status |
 |------|------|--------|
 | **S0** | Scaffold + Telegram verified | **COMPLETE** — gate commit `106e6a4`, tag `queen-alpha_S0_baseline` |
-| **S1** | JSONL DAG memory (replace HISTORY.md) | **COMPLETE** — gate commit pending, tag `queen-alpha_S1_dag_memory` |
-| **S2** | Identity/persona + Telegram diagnostics (/status /tree /budget /workers /health) | Not started |
+| **S1** | JSONL DAG memory (replace HISTORY.md) | **COMPLETE** — gate commit `53e0689`, tag `queen-alpha_S1_dag_memory` |
+| **S2** | Memory architecture (hierarchy, retrieval, confidence, signals, onboarding, factory reset) | **COMPLETE** — 182 tests, tag `queen-alpha_S2_memory_arch` |
 | **S3** | Docker executor (sandboxed Python execution, AST filter) | Not started |
 | **S4** | Hive manager (worker spawning, IPC, registry) | Not started. Depends on S3. |
 | **S5** | Skill forge (Queen creates her own tools) | Not started. Can parallel S3/S4. |
@@ -150,7 +150,7 @@ S7 (emission stream) <-- last, needs everything stable
 | Config | `~/.hive/config.json` | Initialized via `hive onboard` |
 | Workspace | `~/.hive/workspace/` | Created (AGENTS.md, SOUL.md, USER.md, memory/) |
 | WhatsApp bridge | `/root/queen-alpha/bridge/dist/` | Built, 0 vulnerabilities |
-| Test suite | 55/55 passed | All green |
+| Test suite | 182/182 passed | All green |
 | GitHub CLI | `gh` authenticated as Lexi-Energy | Working |
 | Git identity | Lexi-Energy (noreply email) | Configured |
 
@@ -168,8 +168,13 @@ Channel -> InboundMessage -> Bus -> Agent Loop -> LLM -> Tool Exec -> OutboundMe
 ```
 
 ### Key Systems
-- **Agent Loop** (`hive/agent/loop.py`): ReAct pattern, 20 iter cap, auto memory consolidation at 50 msgs
-- **Memory** (`hive/agent/memory.py`): MEMORY.md (LLM-updated facts, persists across sessions). HISTORY.md removed — conversation history lives in DAG CompactionEntry nodes
+- **Agent Loop** (`hive/agent/loop.py`): ReAct pattern, 20 iter cap, capacity trigger at 200 msgs (DAG-only), signal-based memory writes via `report_task`
+- **Memory hierarchy** (`hive/agent/memory.py` + `memory/`): `MemoryEntry` with confidence (HIGH/MEDIUM/LOW) + decay. Hierarchy: identity/, systems/, projects/, procedural/, lessons/, skills/
+- **Retrieval** (`hive/agent/retrieval.py`): `MemoryRetriever` — always loads identity/, on-demand loads matching workflows + failure paragraphs
+- **Consolidation** (`hive/agent/consolidation.py`): 6 signal types → 6 memory writers (workflow, failure, correction, decision, pattern, skill)
+- **Onboarding** (`hive/agent/onboarding.py`): `/onboard` — 4-phase state machine, writes to memory/identity/ and memory/systems/
+- **Factory reset** (`hive/agent/admin.py`): `/factory-reset` — backup zip + wipe memory/ + sessions/ + reinitialise
+- **Session DAG** (`hive/session/dag.py`): JSONL tree sessions. Each message is a node with parent_id. build_context() reconstructs the branch for the LLM. compact() embeds summaries in the tree.
 - **Session DAG** (`hive/session/dag.py`): JSONL tree sessions. Each message is a node with parent_id. build_context() reconstructs the branch for the LLM. compact() embeds summaries in the tree.
 - **Context** (`hive/agent/context.py`): Assembles system prompt from bootstrap files + memory + skills
 - **Providers** (`hive/providers/registry.py`): 16 providers via ProviderSpec, LiteLLM routing

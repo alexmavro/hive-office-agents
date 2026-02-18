@@ -1,52 +1,85 @@
 # STATUS.md
 
-## Current step: S1 (DAG memory) — COMPLETE
-## Last git commit: `84d0485` — S1.3: update loop.py
+## Current step: S2 (Memory Architecture) — COMPLETE
+## Last git commit: `f40348b` — S2.6: factory reset
+## Git tag: `queen-alpha_S2_memory_arch`
 
-## S1 Checklist
+## S2 Checklist
 
-- [x] DagSession core module (`hive/session/dag.py`) — 13 new tests
-- [x] Wire DagSession into Session class (`hive/session/manager.py`)
-- [x] Update loop.py consolidation — remove HISTORY.md, use CompactionEntry
-- [x] Update memory.py — remove append_history() and history_file
-- [x] 68/68 tests passing
-- [x] Gateway restarted, Telegram verified live
-- [x] S1 GATE commit + tag
+- [x] S2.1: Memory hierarchy templates (`templates/memory/`) + SOUL.md rewrite — commit `c30f1a4`
+- [x] S2.2: Retrieval integration — `MemoryRetriever`, query-driven memory/ in system prompt — commit `07e738f`
+- [x] S2.3: `MemoryEntry` + confidence tracking (HIGH/MEDIUM/LOW, decay schedule) — commit `1919655`
+- [x] S2.4: `report_task` tool + signal detection + consolidation routing — commit `374abf3`
+- [x] S2.5: Onboarding flow (`/onboard`) — 4-phase state machine, bypasses LLM — commit `d55006d`
+- [x] S2.6: Factory reset (`/factory-reset`) — backup zip + wipe + reinitialise — commit `f40348b`
+- [x] 182/182 tests passing
+- [x] No hardcoded user data in `hive/` core
+- [x] S2 GATE commit + tag
+
+## S2 Wipeable Checklist (manual verification)
+
+- [ ] Can delete `~/.hive/workspace/memory/` entirely and Queen still boots
+- [ ] Fresh boot shows no crash (empty identity/ is graceful)
+- [ ] `/onboard` creates functional user profile (test via Telegram)
+- [ ] Completing onboarding populates `memory/identity/user.md`, `constraints.md`, `preferences.md`
+- [ ] Active project set → `memory/.active_project` + `projects/{name}/` created
+- [ ] `report_task` tool visible in Queen's tool list during conversations
+- [ ] After a successful task, Queen calls `report_task(status="success", ...)` → workflow file created
+- [ ] `/factory-reset` → warning + confirmation prompt shown
+- [ ] `CONFIRM FACTORY RESET` → backup zip created in `exports/`, memory wiped
+- [ ] Post-reset `/onboard` works cleanly
+
+## What changed in S2
+
+### New files
+- `templates/memory/` — full template tree (identity/, systems/, projects/, procedural/, lessons/, skills/)
+- `hive/agent/retrieval.py` — `MemoryRetriever`: always-loaded identity + on-demand workflow/failure search
+- `hive/agent/consolidation.py` — signal detection + 6 memory writers (workflow, failure, correction, decision, pattern, skill)
+- `hive/agent/tools/report_task.py` — `ReportTaskTool`: Queen signals meaningful events
+- `hive/agent/onboarding.py` — `OnboardingFlow`: 4-phase structured intake, persisted state
+- `hive/agent/admin.py` — `factory_reset()`: backup + wipe + reinitialise
+- `tests/test_memory_hierarchy.py` — 10 tests
+- `tests/test_retrieval.py` — 17 tests
+- `tests/test_memory_entry.py` — 16 tests
+- `tests/test_signal_consolidation.py` — 27 tests
+- `tests/test_onboarding.py` — 29 tests
+- `tests/test_factory_reset.py` — 15 tests
+
+### Modified files
+- `workspace/SOUL.md` — rewritten: 5 operational rules, memory protocol, communication rules
+- `workspace/AGENTS.md` — removed stale HISTORY.md references
+- `hive/agent/memory.py` — added `MemoryEntry`, `write_memory_entry`, `read_memory_entries`, `decay_confidence`, `initialize_memory_hierarchy`
+- `hive/agent/context.py` — uses `MemoryRetriever`, removed `USER.md` from bootstrap (now via retrieval)
+- `hive/agent/loop.py` — registered `ReportTaskTool`, replaced 50-msg count trigger with 200-msg capacity trigger, added `_handle_signal()`, `/onboard`, `/factory-reset` commands
+
+### Architecture principles established
+- **Core vs user data boundary**: templates (git-tracked) vs `~/.hive/workspace/memory/` (wipeable)
+- **Signal-based learning**: Queen calls `report_task` → async consolidation → writes to memory hierarchy
+- **Confidence decay**: HIGH→MEDIUM@30d, MEDIUM→LOW@90d, LOW→needs_reverification@7d
+- **Onboarding-first UX**: fresh boot without `memory/identity/user.md` → nudge to `/onboard`
+
+## S1 (Complete)
+
+- [x] All S1 items — see tag `queen-alpha_S1_dag_memory` (commit `53e0689`)
+- JSONL DAG sessions, DagSession, CompactionEntry, removed HISTORY.md
 
 ## S0 (Complete)
 
 - [x] All S0 items — see tag `queen-alpha_S0_baseline` (commit `106e6a4`)
 
-## What changed in S1
-
-- `hive/session/dag.py` (NEW): JSONL tree sessions. Each conversation stored as an
-  append-only .jsonl file. Every message is a node with parent_id. Branching supported.
-  CompactionEntry stores summaries in-tree (replaces HISTORY.md).
-- `hive/session/manager.py`: Session.messages list → DagSession backing. add_message()
-  writes to DAG, get_history() calls build_context(). Append-only, crash-safe.
-- `hive/agent/loop.py`: 8 session.messages refs → session.message_count + _dag.get_path().
-  Consolidation writes CompactionEntry instead of HISTORY.md.
-- `hive/agent/memory.py`: Removed append_history() and history_file. MEMORY.md stays.
-- `tests/test_dag_session.py` (NEW): 13 tests covering all DagSession operations.
-- `tests/test_consolidate_offset.py`: Updated to use new DAG API.
-
-## Migration note
-
-Session files created before S1 (old flat format) are gracefully handled — old messages
-have no `type` field and are ignored by the new loader. New messages append in DAG format.
-No data migration needed (all pre-S1 sessions were dev test messages).
-
 ## Blockers
 
 - (none)
 
-## Next step: S2 — Identity + Telegram diagnostics
+## Next step: S3 — Docker executor
 
-Commands to implement: /status /tree /budget /workers /health
-Queen gets a stronger identity/persona in context.py.
+Sandboxed Python execution with AST filter.
+See `docs/hive_office_revised_plan_v03.md` for full S3 spec.
 
 ## Open questions for next session
 
-- S2 persona: how strong should the Queen's identity be? More assertive/personality-forward?
-  Or keep the current neutral assistant style and just add the /commands?
-- Budget tracking: track Gemini API spend per day? Or defer to S6 safety rails?
+- Should the Queen proactively run `/onboard` prompt on first boot, or just suggest it?
+  (Currently: memory retrieval returns empty string → legacy MEMORY.md fallback → silent)
+- S3 Docker executor: use existing `ExecTool` as foundation or build fresh?
+- Consider wiring `initialize_memory_hierarchy()` into `AgentLoop.__init__()` (templates_dir
+  needs to be resolved from package installation path)
