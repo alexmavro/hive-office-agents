@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+
+# Node.js
+node_modules/
+bridge/dist/
+
+# Environment & secrets
+.env
+.assets
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+botpy.log
+*.log
+
+# OS
+.DS_Store
+
+# Build artifacts
+poetry.lock
