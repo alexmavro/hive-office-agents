@@ -20,8 +20,16 @@ You have access to:
 
 ## Memory
 
-- `memory/MEMORY.md` — long-term facts (preferences, context, relationships)
-- `memory/HISTORY.md` — append-only event log, search with grep to recall past events
+Long-term memory lives in the `memory/` hierarchy:
+
+- `memory/identity/` — who the user is, their constraints and preferences (always loaded)
+- `memory/systems/` — infrastructure state (loaded when doing system tasks)
+- `memory/projects/` — active project context and working memory
+- `memory/procedural/` — workflows and fixes (loaded on-demand by task type)
+- `memory/lessons/` — what worked, what failed, patterns (loaded on-demand)
+
+Use `report_task` to write to memory. Don't write directly to memory files in normal operation.
+Conversation history is stored in JSONL DAG sessions (automatic — no manual action needed).
 
 ## Scheduled Reminders
 

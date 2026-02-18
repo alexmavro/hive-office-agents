@@ -1,0 +1,16 @@
+# Successes
+
+<!-- Approaches that worked. Reference when doing similar tasks. -->
+<!-- Populated automatically via report_task(status="success"). -->
+<!-- Format: ## [date] — [task type] -->
+
+<!-- Example:
+## 2026-02-18 — deploy_docker_service
+
+**Task:** Deploy analytics service as Docker container
+**Approach:** Build image → push to registry → docker run with restart policy
+**What worked:** Checking port availability first, using --restart always
+**Confidence:** HIGH
+
+Full workflow extracted to: procedural/workflows/deploy_docker_service.md
+-->

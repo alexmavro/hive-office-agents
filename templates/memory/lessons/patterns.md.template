@@ -1,0 +1,19 @@
+# Patterns
+
+<!-- Recurring situations and their standard solutions. -->
+<!-- Populated automatically via report_task(status="pattern"). -->
+<!-- A pattern is created when the same approach succeeds 3+ times. -->
+
+<!-- Example:
+## 2026-03-01 — Docker deployment pattern
+
+**Situation:** Deploying any new service as a Docker container
+**Standard approach:**
+1. Check port availability
+2. Pull/build image
+3. Run with --restart always --name {service} -d
+4. Verify with curl localhost:{port}/health
+5. Update systems/infrastructure.md
+
+**Confidence:** HIGH (used 5 times successfully)
+-->

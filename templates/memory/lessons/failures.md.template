@@ -1,0 +1,17 @@
+# Failures
+
+<!-- Approaches that failed. Don't retry these. -->
+<!-- Populated automatically via report_task(status="failure"). -->
+<!-- Format: ## [date] — [what failed] -->
+
+<!-- Example:
+## 2026-02-18 — pip install in running container
+
+**Task:** Install Python package in running production container
+**What was tried:** exec into container, pip install
+**Why it failed:** Container restarted → package lost. Not persistent.
+**Attempts:** 3
+**What to do instead:** Rebuild image with package, redeploy container
+
+**Confidence:** HIGH
+-->

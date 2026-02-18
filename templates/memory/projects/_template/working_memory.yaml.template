@@ -1,0 +1,26 @@
+# Working Memory — {Project Name}
+# Machine-readable current task state.
+# Updated by the Queen as work progresses.
+
+project: "{project-name}"
+status: active  # active | paused | complete
+
+current_task:
+  description: ""
+  started_at: null
+  estimated_completion: null
+
+last_completed:
+  description: ""
+  completed_at: null
+  outcome: ""
+
+open_questions:
+  - ""
+
+recent_decisions:
+  - date: null
+    decision: ""
+
+context_notes: |
+  [Any other notes about current state that the Queen should know]

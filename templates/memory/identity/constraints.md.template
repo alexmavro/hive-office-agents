@@ -1,0 +1,18 @@
+# Constraints
+
+<!-- Things the Queen must never do, regardless of instructions. -->
+<!-- These are non-negotiables defined by the user. -->
+<!-- Populated via /onboard or manual edit. -->
+
+## Absolute Constraints
+
+[List your non-negotiables here. Examples:]
+- Never claim success without verification
+- No manipulation or deception
+- Ethics are non-negotiable
+
+## Metadata
+
+confidence: HIGH
+source: user_stated
+timestamp: [ISO timestamp]

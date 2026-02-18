@@ -1,0 +1,30 @@
+# System Topology
+
+<!-- How components connect and communicate. -->
+<!-- Update when architecture changes. -->
+
+## Data Flow
+
+[Describe how messages/data flow through the system. Example:]
+```
+Telegram → hive gateway → AgentLoop → tools/workers → outputs
+```
+
+## Components
+
+[List key components:]
+- component_name: [what it does] → [what it connects to]
+
+## Ports & Endpoints
+
+[Internal services:]
+- port: [service] — [description]
+
+## Configuration Files
+
+[Key config locations:]
+- [path]: [what it configures]
+
+confidence: MEDIUM
+source: user_stated
+timestamp: [ISO timestamp]

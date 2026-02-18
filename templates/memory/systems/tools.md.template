@@ -1,0 +1,29 @@
+# Available Tools
+
+<!-- What's installed and usable on the managed infrastructure. -->
+<!-- Update when tools are installed or upgraded. -->
+
+## Core Tools
+
+docker: [version or "installed, version unknown"]
+python: [version, e.g. "3.12.2"]
+git: [version or "installed"]
+node: [version or "not installed"]
+
+confidence: MEDIUM
+source: inferred_from_setup
+timestamp: [ISO timestamp]
+
+## Python Packages (key ones)
+
+[List notable packages:]
+- package_name: [version] — [what it's used for]
+
+## Docker Images Available
+
+[List key images:]
+- image_name:tag — [purpose]
+
+## Notes
+
+[Anything about tool configuration worth knowing]

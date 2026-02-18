@@ -1,0 +1,29 @@
+# Communication Preferences
+
+<!-- How the user wants to be communicated with. -->
+<!-- Populated via /onboard or manual edit. -->
+
+## Communication Style
+
+style: [direct | formal | casual | technical]
+tone: [e.g. "Direct, evidence-based, no hedging"]
+format: [e.g. "Short paragraphs, bullet points for lists"]
+avoid: [e.g. "No corporate speak, no filler phrases"]
+
+## Autonomy Level
+
+when_to_ask: [e.g. "When genuinely uncertain about approach"]
+when_to_decide: [e.g. "When I have clear confidence and it's reversible"]
+risk_tolerance: [low | medium | high]
+
+## Language
+
+primary: [e.g. "German"]
+secondary: [e.g. "English for technical content"]
+switching_rule: [e.g. "Match the language the user writes in"]
+
+## Metadata
+
+confidence: HIGH
+source: user_stated
+timestamp: [ISO timestamp]

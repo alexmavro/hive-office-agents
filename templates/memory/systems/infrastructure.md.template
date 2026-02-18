@@ -1,0 +1,30 @@
+# Infrastructure
+
+<!-- What systems the Queen is managing. -->
+<!-- Update when infrastructure changes. -->
+
+## Primary Machine
+
+type: [VPS | local machine | cloud instance]
+provider: [e.g. Hetzner, DigitalOcean, AWS]
+specs: [e.g. "8 vCPU, 16GB RAM"]
+os: [e.g. "Ubuntu 24.04 LTS"]
+ip: [IP address or "see config for SSH host"]
+ssh_user: [e.g. "root"]
+
+confidence: HIGH
+source: verified_ssh
+timestamp: [ISO timestamp]
+
+## Installed Services
+
+[List running services with ports:]
+- service_name: [port] — [what it does]
+
+confidence: MEDIUM
+source: inferred_from_setup
+timestamp: [ISO timestamp]
+
+## Notes
+
+[Anything else worth knowing about this machine]
