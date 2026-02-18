@@ -20,7 +20,9 @@ from hive.agent.tools.web import WebSearchTool, WebFetchTool
 from hive.agent.tools.message import MessageTool
 from hive.agent.tools.spawn import SpawnTool
 from hive.agent.tools.cron import CronTool
+from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.memory import MemoryStore
+from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
 from hive.session.manager import Session, SessionManager
@@ -122,6 +124,9 @@ class AgentLoop:
         # Cron tool (for scheduling)
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+
+        # Signal tool — triggers memory consolidation on meaningful events
+        self.tools.register(ReportTaskTool(consolidation_callback=self._handle_signal))
     
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -287,7 +292,11 @@ class AgentLoop:
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 hive commands:\n/new — Start a new conversation\n/help — Show available commands")
         
-        if session.message_count > self.memory_window:
+        # Emergency capacity trigger: DAG-only compaction when session is very large.
+        # This prevents context overflow but does NOT write to memory/ hierarchy —
+        # memory writes are signal-based only (via report_task tool).
+        _CAPACITY_LIMIT = 200
+        if session.message_count > _CAPACITY_LIMIT:
             asyncio.create_task(self._consolidate_memory(session))
 
         self._set_tool_context(msg.channel, msg.chat_id)
@@ -449,6 +458,35 @@ Respond with ONLY valid JSON, no markdown fences."""
             logger.info(f"Memory consolidation done: {session.message_count} messages, last_consolidated={session.last_consolidated}")
         except Exception as e:
             logger.error(f"Memory consolidation failed: {e}")
+
+    async def _handle_signal(self, event: dict) -> None:
+        """Handle a signal from the report_task tool.
+
+        Detects the signal type and fires consolidation as an asyncio task.
+        The current session is retrieved from the tool context stored on the loop.
+        """
+        signal_type = detect_signal(event)
+        if not signal_type:
+            logger.debug(f"_handle_signal: no signal for event status={event.get('status')!r}")
+            return
+
+        # Retrieve current session from context (set per-message via _set_tool_context)
+        channel = getattr(self, "_current_channel", "cli")
+        chat_id = getattr(self, "_current_chat_id", "direct")
+        session = self.sessions.get_or_create(f"{channel}:{chat_id}")
+        memory_dir = self.workspace / "memory"
+
+        logger.info(f"Signal detected: {signal_type} (status={event.get('status')})")
+        asyncio.create_task(
+            consolidate(
+                signal_type=signal_type,
+                event=event,
+                memory_dir=memory_dir,
+                provider=self.provider,
+                model=self.model,
+                session=session,
+            )
+        )
 
     async def process_direct(
         self,
