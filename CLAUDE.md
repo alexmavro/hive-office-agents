@@ -19,9 +19,9 @@ GitHub: `Lexi-Energy/hive-office-agents` (private)
 
 ## Constraints
 
-- Do NOT rewrite the core agent loop. Extend it.
+- Do NOT rewrite the core agent loop. Extend it. (exceptions are for now the memory system and are open to extension, which you can discuss with Alex)
 - Do NOT introduce heavy dependencies (no LangChain, no CrewAI, no vector DBs).
-- Keep new files under 300 lines each.
+- Keep new files under 500 lines each, if possible (ask otherwise).
 - Use the existing skill system for new tools.
 - All file IPC uses write-then-rename pattern (atomic writes).
 - Never say "I fixed it" unless you verified the output.
@@ -134,8 +134,8 @@ S7 (emission stream) <-- last, needs everything stable
 |------|-------|-------|
 | Builder (Claude Code) | Claude Opus via subscription | Architecture work |
 | Queen (dev/test) | Gemini 2.5 Flash via API | EUR 200 in credits, fast + cheap |
-| Queen (production) | Gemini 2.5 Pro or Claude Sonnet | Upgrade when stable |
-| Workers | Gemini Flash or Haiku via OpenRouter | Narrow tasks, small models |
+| Queen (production) | Gemini 2.5 Pro or Claude Sonnet | Upgrade when stable and costs clear |
+| Workers | Gemini Flash or Qwen and other opensource models via OpenRouter | open to extension |
 
 ## Environment (Verified 2026-02-18)
 
