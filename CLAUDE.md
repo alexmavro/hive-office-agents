@@ -73,6 +73,30 @@ Hive-Queen  (LAW, root, crowned)
 - Alex (she/her) tests via Telegram for experience quality; Claude Code tests via pytest for correctness
 - Two-layer testing protocol: see `docs/hive_office_test_protocol.md`
 
+## Core vs Personal Data — Decision Framework
+
+Before building anything, ask: **where does this belong?**
+
+**The test:** Would a factory reset erase this? Does it change per user/deployment?
+- Yes → personal data (wipeable, `~/.hive/workspace/`)
+- No → core (git-tracked, `queen-alpha/workspace/` or `hive/`)
+
+| Thing | Type | Location |
+|-------|------|----------|
+| Queen's *type* ("Hive Queen") | Core | `workspace/SOUL.md` |
+| Queen's *personal name* (given by user) | Personal data | `memory/identity/user.md` |
+| Operational rules (SOUL.md) | Core | `workspace/SOUL.md` |
+| User's name, address, preferences | Personal data | `memory/identity/` |
+| Memory hierarchy *structure* (templates) | Core | `templates/memory/` |
+| Memory hierarchy *content* (learned facts) | Personal data | `~/.hive/workspace/memory/` |
+| Tool definitions | Core | `hive/agent/tools/` |
+| Queen's created skills | Personal data | `memory/skills/` |
+| Session history | Personal data | `~/.hive/sessions/` |
+| Channel config, API keys | Personal data | `~/.hive/config.json` |
+
+**Principle:** Core ships with every Queen instance. Personal data belongs to the user and wipes cleanly.
+If a new user installs the Hive, they should get the same core — and zero of the previous user's data.
+
 ## Gateway Routine (every session)
 
 **After any code change — restart the gateway:**

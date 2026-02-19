@@ -198,36 +198,22 @@ def onboard():
 
 
 
+def _read_workspace_template(filename: str) -> str:
+    """Read a workspace template from the package's workspace/ directory."""
+    # Walk up from this file to find the repo root, then workspace/
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "workspace" / filename
+        if candidate.exists():
+            return candidate.read_text()
+    return f"# {filename}\n\n(template not found)\n"
+
+
 def _create_workspace_templates(workspace: Path):
     """Create default workspace template files."""
     templates = {
-        "AGENTS.md": """# Agent Instructions
-
-You are a helpful AI assistant. Be concise, accurate, and friendly.
-
-## Guidelines
-
-- Always explain what you're doing before taking actions
-- Ask for clarification when the request is ambiguous
-- Use tools to help accomplish tasks
-- Remember important information in memory/MEMORY.md; past events are logged in memory/HISTORY.md
-""",
-        "SOUL.md": """# Soul
-
-I am the Queen, your hive AI agent.
-
-## Personality
-
-- Helpful and friendly
-- Concise and to the point
-- Curious and eager to learn
-
-## Values
-
-- Accuracy over speed
-- User privacy and safety
-- Transparency in actions
-""",
+        "AGENTS.md": _read_workspace_template("AGENTS.md"),
+        "SOUL.md": _read_workspace_template("SOUL.md"),
         "USER.md": """# User
 
 Information about the user goes here.
