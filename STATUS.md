@@ -1,8 +1,8 @@
 # STATUS.md
 
 ## Current step: S4 (Hive Manager) — NOT STARTED
-## Last git commit: `b0c0202` — chore: nanobot → hive cleanup, remove dead code
-## Git tag: `queen-alpha_S3_docker_executor` (at `0693718`)
+## Last git commit: `123b429` — SA.3: daily audit reporter + asyncio daily schedule
+## Git tag: `queen-alpha_S3_docker_executor` (at `0693718`) — SA layer is a parallel track, no new tag
 
 ## S2 Checklist
 
@@ -230,6 +230,65 @@ Fresh-eyes audit of the entire codebase. Everything nanobot-specific, dead, or h
 
 **Worker progress pings: on by default or verbose-only?**
 → **Still open — UX call for Alex.** Recommendation: verbose-only by default (cleaner Telegram experience; on-demand `workers` tool provides status). Confirm before S4.3.
+
+## SA — Audit Layer (COMPLETE, 2026-02-19)
+
+Parallel build track — no dependency on S4. S4 workers will call `audit.log_worker()` when built.
+
+### Checklist
+
+- [x] SA.1: `hive/audit/logger.py` — `AuditLogger` (async-safe JSONL, sanitization, anomaly detection) — commit `b3e57f6`
+- [x] SA.1: `hive/audit/retention.py` — `run_retention()` + `check_size_gb()` — commit `b3e57f6`
+- [x] SA.1: `tests/test_audit_logger.py` — 24 tests — commit `b3e57f6`
+- [x] SA.2: `AuditConfig` in `hive/config/schema.py` — commit `52c81d0`
+- [x] SA.2: `ToolRegistry.execute()` wraps all tool calls with timing + sanitized arg logging — commit `52c81d0`
+- [x] SA.2: `AgentLoop._run_agent_loop()` logs every LLM call with token counts + anomaly detection — commit `52c81d0`
+- [x] SA.2: `AgentLoop._process_message()` logs channel events in/out (metadata only, no content) — commit `52c81d0`
+- [x] SA.2: `gateway()` creates `AuditLogger`, logs start/stop, runs retention on boot, warns on size — commit `52c81d0`
+- [x] SA.3: `hive/audit/reporter.py` — daily MD report generator (tool table, LLM stats, errors, anomalies) — commit `123b429`
+- [x] SA.3: `_run_daily_report_loop()` asyncio task in gateway (default 09:00 UTC daily) — commit `123b429`
+- [x] 289/289 tests passing
+- [x] SA GATE commit (this gate)
+
+### What gets logged
+
+| Event type | Data logged |
+|---|---|
+| `tool_call` | actor, tool name, args (sanitized — sensitive keys replaced with `<N chars>`), ok/fail, duration_ms, error |
+| `llm_call` | model, tokens_in, tokens_out, tool_calls_n, duration_ms, anomalies (if any) |
+| `channel_event` | direction (in/out), channel, session_id, content_length (NOT content) |
+| `system` | event name (gateway_start/stop), pid, model, channels |
+| `worker` | worker_id, name, event — **stub for S4** |
+
+**Anomaly flags on `llm_call`:** `tokens_in > 50,000`, `tokens_out > 10,000`, `duration_ms > 30,000`
+
+### Decisions recorded
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| What to log | Tool calls, LLM calls (tokens + anomalies), channel events (metadata only), system events | Everything system-relevant; no personal data content |
+| Retention | 30 days active → `archive/` → keep until manual deletion | Queen flags if >5GB, asks user |
+| Sensitive args | Replace with `<N chars>` — drop content of keys: code, content, text, body, message, prompt | Privacy by default |
+| Format | JSONL for audit, MD for daily reports | JSONL = grep-friendly, encrypt-friendly later |
+| Schedule | asyncio task in gateway, not LLM cron | Avoids LLM round-trip for a file write |
+| Log directory | `~/.hive/logs/audit/` (configurable via `AuditConfig`) | Personal data path |
+
+### Future reworks required (before any public deployment)
+
+- **Encryption** — JSONL files are plaintext. Add at-rest encryption before exposing to external systems.
+- **PII guardrails** — Define what "personal data" means in Hive context. Audit must scrub before writing. Requires separate design session.
+- **Security Office Consort** (post-S4) — A worker that reads audit logs daily, sends reports to Telegram, flags anomaly patterns over time. SA is its data foundation.
+- **Real-time anomaly alerting** — Push to Telegram on repeated tool failures or cost spikes. Currently only in daily report.
+- **Log shipping** — If >5GB flag fires repeatedly, ship old archives to cold storage (S3, SFTP). Not in scope now.
+- **Per-worker audit trail** — S4 will add worker lifecycle events. Worker ID will correlate all worker events.
+
+### Verification steps (run after gateway restart)
+
+1. Restart gateway → check `~/.hive/logs/audit/YYYY-MM-DD.jsonl` has `system/gateway_start` event
+2. Send Telegram message → verify `channel_event` in + out + `llm_call` with token counts
+3. Ask Queen to run `docker_exec` → verify `tool_call` with tool=docker_exec + sanitized args
+4. Check `pytest tests/test_audit_logger.py` — all 32 pass
+5. Manually call `generate_daily_report()` → check MD file at `~/.hive/logs/reports/YYYY-MM-DD.md`
 
 ## Next step: S4 — Hive Manager
 

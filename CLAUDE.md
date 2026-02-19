@@ -190,13 +190,17 @@ Rule: if a new session can't figure out what to do next from CLAUDE.md + STATUS.
 │   ├── bridge/                    # WhatsApp bridge (TypeScript/Node.js)
 │   ├── docs/                      # Planning, specs, references (git-tracked)
 │   │   └── specs/                 # Alex's vision docs (memory architecture, build specs)
-│   ├── tests/                     # pytest suite (182 tests)
+│   ├── tests/                     # pytest suite (289 tests)
 │   ├── CLAUDE.md                  # Project brain — read first every session
 │   └── STATUS.md                  # Current step, decisions, open questions
 │
 ├── .hive/                         # ← RUNTIME DATA. Back this up manually.
 │   ├── config.json                # API keys, bot token, channel config (chmod 600)
 │   ├── sessions/                  # Conversation history (JSONL DAG files)
+│   ├── logs/
+│   │   ├── audit/                 # YYYY-MM-DD.jsonl — structured system-event log (SA)
+│   │   │   └── archive/           # Files older than retention_days rotated here
+│   │   └── reports/               # YYYY-MM-DD.md — daily audit summaries (SA.3)
 │   └── workspace/                 # Queen's working directory
 │       ├── SOUL.md, AGENTS.md     # Core behavior rules (from queen-alpha/workspace/)
 │       ├── memory/                # LEARNING — everything the Queen knows
@@ -248,6 +252,7 @@ S7 (emission stream) <-- last, needs everything stable
 | **S1** | JSONL DAG memory (replace HISTORY.md) | **COMPLETE** — gate commit `53e0689`, tag `queen-alpha_S1_dag_memory` |
 | **S2** | Memory architecture (hierarchy, retrieval, confidence, signals, onboarding, factory reset) | **COMPLETE** — 182 tests, tag `queen-alpha_S2_memory_arch` |
 | **S3** | Docker executor (sandboxed Python execution, AST filter) | **COMPLETE** — 257 tests, tag `queen-alpha_S3_docker_executor` |
+| **SA** | Audit layer (structured JSONL logging, retention, daily reports) | **COMPLETE** — parallel track, 289 tests, commits b3e57f6–123b429. See STATUS.md SA section. |
 | **S4** | Hive manager (worker spawning, registry, notification) | **NOT STARTED** — spec complete, ready to build. See STATUS.md S4 section. |
 | **S5** | Skill forge (Queen creates her own tools) | Not started. Can parallel S3/S4. |
 | **S6** | Safety rails (circuit breaker, budget gate, depth limits) | Not started. Depends on S1. |
@@ -295,7 +300,8 @@ Channel -> InboundMessage -> Bus -> Agent Loop -> LLM -> Tool Exec -> OutboundMe
 ```
 
 ### Key Systems
-- **Agent Loop** (`hive/agent/loop.py`): ReAct pattern, 20 iter cap, capacity trigger at 200 msgs (DAG-only), signal-based memory writes via `report_task`
+- **Agent Loop** (`hive/agent/loop.py`): ReAct pattern, 20 iter cap, capacity trigger at 200 msgs (DAG-only), signal-based memory writes via `report_task`. Accepts `audit=` kwarg for structured logging.
+- **Audit layer** (`hive/audit/`): `AuditLogger` — async-safe JSONL writer to `~/.hive/logs/audit/YYYY-MM-DD.jsonl`. Logs tool calls (args sanitized), LLM calls (tokens + anomaly detection), channel events (metadata only), system lifecycle. `retention.py` rotates >30d files to archive/. `reporter.py` generates daily MD reports. System-event logging only — not personal data.
 - **Memory hierarchy** (`hive/agent/memory.py` + `memory/`): `MemoryEntry` with confidence (HIGH/MEDIUM/LOW) + decay. Hierarchy: identity/, systems/, projects/, procedural/, lessons/, skills/
 - **Retrieval** (`hive/agent/retrieval.py`): `MemoryRetriever` — always loads identity/, on-demand loads matching workflows + failure paragraphs
 - **Consolidation** (`hive/agent/consolidation.py`): 6 signal types → 6 memory writers (workflow, failure, correction, decision, pattern, skill)
@@ -309,7 +315,7 @@ Channel -> InboundMessage -> Bus -> Agent Loop -> LLM -> Tool Exec -> OutboundMe
 - **Channels** (`hive/channels/`): Abstract base, ChannelManager dispatches outbound
 
 ### Config
-`~/.hive/config.json` — sections: `agents`, `channels`, `providers`, `gateway`, `tools`
+`~/.hive/config.json` — sections: `agents`, `channels`, `providers`, `gateway`, `tools`, `audit`
 
 ## Worker Architecture (S4 design — 2026-02-19)
 
