@@ -21,6 +21,7 @@ from hive.agent.tools.message import MessageTool
 from hive.agent.tools.spawn import SpawnTool
 from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
+from hive.agent.tools.docker_exec import DockerExecTool
 from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt, get_link_intake_prompt
@@ -133,6 +134,15 @@ class AgentLoop:
 
         # Signal tool — triggers memory consolidation on meaningful events
         self.tools.register(ReportTaskTool(consolidation_callback=self._handle_signal))
+
+        # Docker sandbox — only if image is built
+        if DockerExecTool.is_available():
+            self.tools.register(DockerExecTool())
+        else:
+            logger.debug(
+                "docker_exec tool not registered: hive-worker image not found. "
+                "Run: docker build -f worker.Dockerfile -t hive-worker:latest ."
+            )
     
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
