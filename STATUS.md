@@ -78,6 +78,24 @@
 
 - (none)
 
+## Known Growing Pains (revisit after S3)
+
+Observed from live Telegram testing (2026-02-19). Partially fixed, partially deferred.
+
+**Fixed this session:**
+- Queen called herself "nanobot" → `_get_identity()` was hardcoding "Queen-Alpha" on top of SOUL.md. Fixed: removed identity claim from context.py, SOUL.md is now the sole identity source.
+- Relative file paths failing → Queen used `memory/identity/user.md` which resolved against `/root`, not workspace. Fixed: system prompt now shows absolute workspace path with explicit "always use absolute paths" instruction.
+- Voice messages causing context loss → OGG file passed raw to LLM → "Yes to what?" loop. Fixed: audio files now intercepted with graceful fallback mission.
+- Language not switching automatically → Fixed: SOUL.md rule added, plus language preference save flow.
+- `/factory_reset` visible in Telegram command menu → Fixed: removed from BOT_COMMANDS.
+
+**Deferred — revisit after S3:**
+- Factory reset broken in chat: confirmation phrase recognized but LLM refuses to execute it. Admin-only for now, will rethink flow later.
+- Robotic greeting formula: Queen appends "How can I help you do less office work today?" to every hello. Feels like a task bot, not a friend. Needs SOUL.md tone work.
+- Queen doesn't know her own execution model: "Can you restart yourself?" caused 5 turns of confusion. She has `exec` and root — she should know this. Add self-knowledge section to SOUL.md post-S3.
+- Memory not internalised after restart: Queen reads identity files via tool calls instead of reasoning from them. Retriever loads them correctly but LLM doesn't "own" the knowledge. Improve retrieval quality or prime her with a startup summary.
+- Voice transcription: no audio-to-text capability. Deferred to post-S3 (Whisper worker or Google STT as a Hive-Team later).
+
 ## Next step: S3 — Docker executor
 
 **Why Docker matters (not optional):**
