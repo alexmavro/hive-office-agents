@@ -498,6 +498,12 @@ def agent(
     else:
         logger.disable("hive")
     
+    import os as _os
+    from pathlib import Path as _Path
+    from hive.audit import AuditLogger as _AuditLogger
+    _audit_log_dir = _Path.home() / ".hive" / "logs" / "audit"
+    _audit = _AuditLogger(log_dir=_audit_log_dir) if config.audit.enabled else None
+
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
@@ -511,6 +517,7 @@ def agent(
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
+        audit=_audit,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on
