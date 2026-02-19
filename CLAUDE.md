@@ -23,6 +23,41 @@ Strategy: Phase 1 = match OpenClaw core (S0-S7). Phase 2 = exceed on workflows (
 
 Reference: `docs-alex-vision-DO_NOT_EDIT_READ_ONLY/Where OpenClaw users hurt and where you win.md`
 
+## Hive Architecture (canonical)
+
+```
+Hive-Queen  (LAW, root, crowned)
+├── Hive-Teams  (highest class — specialised multi-worker collaborative workflows)
+│   ├── Writing-Team     (e.g. RAG-powered content production)
+│   ├── Research-Team    (multi-worker, learns from each run)
+│   └── ... (each Team is a defined workflow + learning layer)
+├── Workers
+│   ├── Temps       — ephemeral. Queen spawns, Queen kills when done.
+│   └── Consorts    — stateful. Promoted temps. Do the Queen's bidding long-term.
+└── Personal Skill Docker  (experimental)
+    └── Python Dev (smolagent) — Queen instructs → creates solution → Queen checks
+                                  → duplicates for workers, teams, or direct use
+```
+
+**Queen's explicit responsibilities:**
+- Delegates all execution — does not do heavy work herself
+- QA and fact-checks all output from workers and teams
+- Pauses teams/workers when server resources demand it
+- Kills temps on task completion
+- Can lend Consorts to Hive-Teams temporarily
+- Future: token budget monitoring, flow integrity checks, suggests better approach
+
+**How this maps to the build steps:**
+- S3 (Docker executor) = the sandbox every worker runs in, including the personal Python dev
+- S4 (Hive manager) = spawning temps and Consorts, Self-Terminator protocol
+- S5 (Skill forge) = Queen uses her Python dev to create and save reusable skills
+- Hive-Teams = new step, post-S7, not yet specced in detail
+
+**Hive-Teams** are higher-class than single workers:
+- Multiple workers collaborating on a defined workflow
+- The team itself learns (not just the Queen)
+- Alex has pre-worked "solutions and flows" for this — detail when ready
+
 ## NO-GO (do not build without explicit direction)
 
 - **WhatsApp channel** — security risk, deprioritized indefinitely
