@@ -341,7 +341,8 @@ class AgentLoop:
                 sessions_dir=self.workspace.parent / "sessions",
                 confirm=True,
             )
-            # Session was wiped — re-create a fresh one for the response
+            # Sessions dir was wiped — recreate it before writing
+            (self.workspace.parent / "sessions").mkdir(parents=True, exist_ok=True)
             fresh_session = self.sessions.get_or_create(key)
             fresh_session.add_message("user", msg.content)
             fresh_session.add_message("assistant", result)
