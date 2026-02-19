@@ -95,3 +95,6 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "docker: requires hive-worker Docker image (run: docker build -f worker.Dockerfile -t hive-worker:latest .)",
+]
