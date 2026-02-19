@@ -298,22 +298,28 @@ class AgentLoop:
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 hive commands:\n/new — Start a new conversation\n/onboard — Set up your profile (5 min)\n/help — Show available commands")
 
-        # Onboarding: /onboard starts (or restarts) the flow
-        onboarding = OnboardingFlow(self.workspace / "memory")
+        # Onboarding: /onboard triggers an LLM-driven intake interview.
+        # The mission prompt is injected as the "current message" so the Queen
+        # sees it, interprets it, and responds with her first question.
+        # No message interception — all subsequent messages go through the normal LLM loop.
         if cmd == "/onboard":
-            response_text = onboarding.start()
-            session.add_message("user", msg.content)
-            session.add_message("assistant", response_text)
+            onboarding = OnboardingFlow(self.workspace / "memory")
+            mission = onboarding.start()
+            self._set_tool_context(msg.channel, msg.chat_id)
+            initial_messages = self.context.build_messages(
+                history=session.get_history(max_messages=self.memory_window),
+                current_message=mission,
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+            )
+            final_content, tools_used = await self._run_agent_loop(initial_messages)
+            if final_content is None:
+                final_content = "Starting onboarding — I'll ask you a few questions to set up your profile."
+            session.add_message("user", "/onboard")
+            session.add_message("assistant", final_content,
+                                tools_used=tools_used if tools_used else None)
             self.sessions.save(session)
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=response_text)
-
-        # Onboarding: if active, route all messages through the flow (bypass LLM)
-        if onboarding.is_active():
-            response_text = onboarding.handle_response(msg.content)
-            session.add_message("user", msg.content)
-            session.add_message("assistant", response_text)
-            self.sessions.save(session)
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=response_text)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=final_content)
 
         # Factory reset: /factory-reset or /factory_reset (Telegram uses underscores in command menu)
         if cmd in ("/factory-reset", "/factory_reset"):

@@ -217,28 +217,27 @@ class TestFactoryResetConfirmed:
 class TestPostResetState:
     @pytest.mark.asyncio
     async def test_onboarding_not_active_after_reset(self, tmp_path):
-        """Onboarding state is wiped along with memory/."""
+        """After factory reset, onboarding is ready for a fresh start."""
         workspace, sessions_dir = make_workspace(tmp_path)
         memory_dir = workspace / "memory"
 
-        # Start onboarding before reset
+        # In the LLM-driven design, is_active() is always False
         flow = OnboardingFlow(memory_dir)
-        flow.start()
-        assert flow.is_active()
+        assert not flow.is_active()
 
-        # Reset wipes memory/ (and .onboarding_state.json with it)
+        # Reset wipes memory/
         await factory_reset(
             workspace=workspace, templates_dir=None,
             sessions_dir=sessions_dir, confirm=True,
         )
 
-        # New flow instance should not be active (state file gone)
+        # Fresh flow is still inactive (LLM-driven: no blocking state)
         fresh_flow = OnboardingFlow(workspace / "memory")
         assert not fresh_flow.is_active()
 
     @pytest.mark.asyncio
     async def test_can_onboard_fresh_after_reset(self, tmp_path):
-        """After reset, /onboard should work cleanly."""
+        """After reset, /onboard should work cleanly (LLM-driven: returns mission prompt)."""
         workspace, sessions_dir = make_workspace(tmp_path)
         await factory_reset(
             workspace=workspace, templates_dir=None,
@@ -246,5 +245,8 @@ class TestPostResetState:
         )
         flow = OnboardingFlow(workspace / "memory")
         result = flow.start()
-        assert "Phase 1" in result
-        assert flow.is_active()
+        # LLM-driven design: start() returns a mission prompt (not a phase header)
+        assert isinstance(result, str) and len(result) > 0
+        assert "write_file" in result or "interview" in result.lower()
+        # is_active() is always False in the new LLM-driven design
+        assert not flow.is_active()
