@@ -1,8 +1,8 @@
 # STATUS.md
 
-## Current step: S3 (Docker Executor) — NOT STARTED
-## Last git commit: `9ab5555` — post-S2 additions (onboarding redesign, file intake, link intake, privacy)
-## Git tag: `queen-alpha_S2_memory_arch` (at `489a954`)
+## Current step: S4 (Hive Manager) — NOT STARTED
+## Last git commit: `0693718` — S3.4: worker.Dockerfile, 257 tests
+## Git tag: `queen-alpha_S3_docker_executor` (at `0693718`)
 
 ## S2 Checklist
 
@@ -96,18 +96,40 @@ Observed from live Telegram testing (2026-02-19). Partially fixed, partially def
 - Memory not internalised after restart: Queen reads identity files via tool calls instead of reasoning from them. Retriever loads them correctly but LLM doesn't "own" the knowledge. Improve retrieval quality or prime her with a startup summary.
 - Voice transcription: no audio-to-text capability. Deferred to post-S3 (Whisper worker or Google STT as a Hive-Team later).
 
-## Next step: S3 — Docker executor
+## S3 (Complete)
 
-**Why Docker matters (not optional):**
-The Docker sandbox is what makes the Queen a *manager*, not a *worker*.
-Workers run code in isolation. Queen orchestrates. Without S3, the Queen has no safe execution
-environment to delegate real work to. This is foundational to the Hive architecture.
+- [x] S3.1: AST filter (`hive/agent/sandbox/ast_filter.py`) — sandbox escape detection — commit `6183794`
+- [x] S3.2: DockerSandbox class (`hive/agent/sandbox/docker_sandbox.py`) — ephemeral containers — commit `b354f89`
+- [x] S3.3: DockerExecTool + loop.py registration — commit `0d5325a`
+- [x] S3.4: `worker.Dockerfile` — built + verified, 257 tests pass — commit `0693718`, tag `queen-alpha_S3_docker_executor`
 
-Key decisions confirmed:
-- S3→S4→S5→S6→S7 order is intentional — do not reorder
-- AST filter (parse-before-execute) is the security differentiator vs OpenClaw's known RCE vulnerability
-- Workers = temps (ephemeral) and consorts (stateful), both run in Docker
-- Self-Terminator protocol prevents zombie processes (S4)
+**Security architecture:**
+- AST filter: catches Docker-escape attempts + syntax errors before container starts
+- Docker: full network access (Queen can pip install), host filesystem isolated (only /sandbox mounted)
+- Resource limits: `--memory 512m --cpus 1.0`
+- Non-root user (`worker`, uid 1000) + `--security-opt no-new-privileges`
+- Named containers with forced cleanup on timeout (no zombie containers)
+
+**Design decision answered:** Build fresh (`DockerExecTool` + `ExecTool` coexist).
+- `exec` = host-level commands (hive cron add, ls, system tasks)
+- `docker_exec` = sandboxed code execution (Python + shell, full network, ephemeral)
+
+**Queen's use of docker_exec:**
+- `language=python` → code written to /sandbox/run.py → AST checked → container runs it
+- `language=shell` → `sh -c` in container (no AST filter)
+- `pip install` works inside container — user site-packages pre-created in image
+- Files written to `/sandbox` are available during the run for exchange
+
+## Next step: S4 — Hive Manager
+
+Workers + spawning. Queen can now have workers run in Docker. Smolagents review before speccing.
+
+Key things to spec with Alex before building:
+- Worker anatomy (what does a Temp worker look like? just a docker_exec call? or a full agent?)
+- IPC: how does the worker report back? (file in /sandbox? message bus? direct return?)
+- Worker registry (how does Queen track what workers are running?)
+- Consorts: how does a Temp get promoted? what state does it keep?
+- Self-Terminator protocol: what triggers kill vs keep?
 
 ## Strategic decisions (2026-02-19)
 
@@ -139,6 +161,8 @@ are structural advantages, not features.
 
 ## Open questions for next session
 
-- S3 Docker executor: use existing `ExecTool` as foundation or build fresh?
+- S4 worker anatomy: Temp = docker_exec call? or full mini-agent in container?
+- S4 IPC: worker reports back via file in /sandbox? message bus? direct tool return?
+- Smolagents review: Alex wants to share patterns from smolagents-main before S4 spec
 - First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)?
 - Hive-Teams spec: when does Alex want to detail this?
