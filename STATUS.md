@@ -1,8 +1,8 @@
 # STATUS.md
 
-## Current step: S2 (Memory Architecture) — COMPLETE
-## Last git commit: `f40348b` — S2.6: factory reset
-## Git tag: `queen-alpha_S2_memory_arch`
+## Current step: S3 (Docker Executor) — NOT STARTED
+## Last git commit: `9ab5555` — post-S2 additions (onboarding redesign, file intake, link intake, privacy)
+## Git tag: `queen-alpha_S2_memory_arch` (at `489a954`)
 
 ## S2 Checklist
 
@@ -67,19 +67,60 @@
 
 - [x] All S0 items — see tag `queen-alpha_S0_baseline` (commit `106e6a4`)
 
+## Post-S2 additions (committed, not in original gate)
+
+- S2.5 redesigned: LLM-driven onboarding (removed state machine, `/onboard` injects conversational mission)
+- File upload intake: Queen reads PDFs/docs dropped in Telegram, extracts → confirm → save + archive
+- Link intake: Queen fetches URLs, extracts → confirm → save + log
+- SOUL.md: Data Handling rule (PII stays on server, not sent via web tools or spawn)
+
 ## Blockers
 
 - (none)
 
 ## Next step: S3 — Docker executor
 
-Sandboxed Python execution with AST filter.
-See `docs/hive_office_revised_plan_v03.md` for full S3 spec.
+**Why Docker matters (not optional):**
+The Docker sandbox is what makes the Queen a *manager*, not a *worker*.
+Workers run code in isolation. Queen orchestrates. Without S3, the Queen has no safe execution
+environment to delegate real work to. This is foundational to the Hive architecture.
+
+Key decisions confirmed:
+- S3→S4→S5→S6→S7 order is intentional — do not reorder
+- AST filter (parse-before-execute) is the security differentiator vs OpenClaw's known RCE vulnerability
+- Workers = temps (ephemeral) and consorts (stateful), both run in Docker
+- Self-Terminator protocol prevents zombie processes (S4)
+
+## Strategic decisions (2026-02-19)
+
+**NO-GO (do not build, not in scope):**
+- WhatsApp channel — security risk, deprioritized
+- ClawHub / external skills marketplace integration — not aligned with quality-over-quantity strategy
+
+**Planned but not yet in step plan:**
+- `/status` command — Queen reports her current state (memory populated? active project? tools loaded?)
+- `/memory` command — show what the Queen knows (memory file summary)
+- `/health` command — VPS system health (disk, memory, processes, services)
+- "Hive-Teams" — Alex's concept for the next modular layer (solutions + flows). Not yet specced.
+
+**Post-S7 roadmap (from vision doc):**
+- S8: SFTP watcher (file dropzone)
+- S9: Gmail API (inbox sentinel)
+- S10: Calendar integration
+- S11: PDF processor (extract text/tables)
+- S12: Web scraper (Playwright worker)
+- S13: HTTP tool (generic API calls)
+- S14: Invoice extraction workflow (German PDFs)
+- S15: Email triage workflow (multi-account)
+- S16: Research aggregation workflow
+
+**Vision alignment:**
+Build what OpenClaw should have been: 3 channels that work perfectly > 15 that sort-of work.
+10 battle-tested skills > 1,700 unvetted. Queen writes her own tools. Security and cost control
+are structural advantages, not features.
 
 ## Open questions for next session
 
-- Should the Queen proactively run `/onboard` prompt on first boot, or just suggest it?
-  (Currently: memory retrieval returns empty string → legacy MEMORY.md fallback → silent)
 - S3 Docker executor: use existing `ExecTool` as foundation or build fresh?
-- Consider wiring `initialize_memory_hierarchy()` into `AgentLoop.__init__()` (templates_dir
-  needs to be resolved from package installation path)
+- First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)?
+- Hive-Teams spec: when does Alex want to detail this?

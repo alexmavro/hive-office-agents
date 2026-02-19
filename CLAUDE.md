@@ -2,11 +2,32 @@
 
 ## Project Identity
 
-**hive-office-agents** — autonomous AI agents for VPS management.
-The first agent is the **Queen** — she will own and operate this server.
+**hive-office-agents** — autonomous AI agent system. The Hive.
+The Queen manages. Workers execute. The architecture is collaborative and modular by design.
+
+The Queen is a *manager*, not a worker. She plans, delegates, quality-checks, learns, and is user-centric — not task-focused. This distinction is fundamental. Without it, it's just a chatbot.
 
 Built on **nanobot** v0.1.3.post7 (see [NANOBOT_BASELINE.md](NANOBOT_BASELINE.md) for upstream attribution).
 GitHub: `Lexi-Energy/hive-office-agents` (private)
+
+## Vision: What We're Building
+
+Not "OpenClaw but Python." What OpenClaw should have been:
+- **Security-first**: AST filter + Docker isolation. OpenClaw has a known RCE (Feb 2026). We don't.
+- **Quality over volume**: 10 battle-tested skills > 1,700 unvetted. Queen writes her own.
+- **3 channels that work perfectly** > 15 that sort-of work (Telegram ✓, SFTP, Gmail — post-S7)
+- **Cost control built-in**: token budget gate, circuit breaker. No surprise bills.
+- **Modular and packageable**: each layer is independently deployable and replaceable.
+
+Strategy: Phase 1 = match OpenClaw core (S0-S7). Phase 2 = exceed on workflows (5 that solve real problems completely). Phase 3 = open the tool format. Phase 4 = network effects.
+
+Reference: `docs-alex-vision-DO_NOT_EDIT_READ_ONLY/Where OpenClaw users hurt and where you win.md`
+
+## NO-GO (do not build without explicit direction)
+
+- **WhatsApp channel** — security risk, deprioritized indefinitely
+- **ClawHub / external skill marketplace** — not aligned with quality-over-quantity strategy
+- **LangChain, CrewAI, vector DBs** — no heavy dependencies
 
 ## How We Work
 
