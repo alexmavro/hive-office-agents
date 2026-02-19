@@ -233,6 +233,21 @@ class ToolsConfig(BaseModel):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class AuditConfig(BaseModel):
+    """Structured audit log configuration.
+
+    Audit logging captures system events (tool calls, LLM calls, channel metadata,
+    gateway lifecycle) to JSONL files for transparency and retrospective analysis.
+
+    IMPORTANT: This logs system events only — not personal data.
+    See STATUS.md (SA section) for future reworks required before public deployment.
+    """
+    enabled: bool = True
+    retention_days: int = 30       # Days before active logs are moved to archive/
+    max_size_gb: float = 5.0       # Queen flags user when total size exceeds this
+    report_hour: int = 9           # UTC hour to generate daily MD report (SA.3)
+
+
 class Config(BaseSettings):
     """Root configuration for hive."""
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -240,6 +255,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    audit: AuditConfig = Field(default_factory=AuditConfig)
     
     @property
     def workspace_path(self) -> Path:

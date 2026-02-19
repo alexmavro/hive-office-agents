@@ -309,6 +309,7 @@ def gateway(
     from hive.cron.service import CronService
     from hive.cron.types import CronJob
     from hive.heartbeat.service import HeartbeatService
+    from loguru import logger
     
     if verbose:
         import logging
@@ -320,11 +321,19 @@ def gateway(
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
-    
+
+    # Audit logger (system-event logging only — not personal data)
+    import os
+    from hive.audit import AuditLogger
+    from hive.audit.retention import run_retention, check_size_gb
+    from pathlib import Path as _Path
+    audit_log_dir = _Path.home() / ".hive" / "logs" / "audit"
+    audit = AuditLogger(log_dir=audit_log_dir) if config.audit.enabled else None
+
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
-    
+
     # Create agent with cron service
     agent = AgentLoop(
         bus=bus,
@@ -341,6 +350,7 @@ def gateway(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
+        audit=audit,
     )
     
     # Set cron callback (needs agent)
@@ -389,6 +399,24 @@ def gateway(
     console.print(f"[green]✓[/green] Heartbeat: every 30m")
     
     async def run():
+        # Log gateway start + run retention check (non-blocking)
+        if audit:
+            await audit.log_system(
+                "gateway_start",
+                pid=os.getpid(),
+                model=config.agents.defaults.model,
+                channels=channels.enabled_channels,
+            )
+            asyncio.create_task(run_retention(
+                audit_log_dir,
+                active_days=config.audit.retention_days,
+            ))
+            size_gb = check_size_gb(audit_log_dir)
+            if size_gb > config.audit.max_size_gb:
+                logger.warning(
+                    f"Audit log size {size_gb:.2f} GB exceeds {config.audit.max_size_gb} GB — "
+                    "consider archiving or deleting old logs from ~/.hive/logs/audit/archive/"
+                )
         try:
             await cron.start()
             await heartbeat.start()
@@ -399,12 +427,14 @@ def gateway(
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
+            if audit:
+                await audit.log_system("gateway_stop", pid=os.getpid())
             await agent.close_mcp()
             heartbeat.stop()
             cron.stop()
             agent.stop()
             await channels.stop_all()
-    
+
     asyncio.run(run())
 
 

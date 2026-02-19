@@ -4,8 +4,9 @@ import asyncio
 from contextlib import AsyncExitStack
 import json
 import json_repair
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from loguru import logger
 
@@ -29,6 +30,9 @@ from hive.agent.admin import factory_reset, CONFIRM_PHRASE
 from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
 from hive.session.manager import Session, SessionManager
+
+if TYPE_CHECKING:
+    from hive.audit import AuditLogger
 
 
 class AgentLoop:
@@ -59,6 +63,7 @@ class AgentLoop:
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
+        audit: "AuditLogger | None" = None,
     ):
         from hive.config.schema import ExecToolConfig
         from hive.cron.service import CronService
@@ -74,6 +79,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self._audit = audit
 
         # Initialise memory/ hierarchy from templates on first boot (idempotent)
         _templates_dir = Path(__file__).parent.parent.parent / "templates" / "memory"
@@ -81,7 +87,7 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
-        self.tools = ToolRegistry()
+        self.tools = ToolRegistry(audit=audit)
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
@@ -186,6 +192,7 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
+            _t0_llm = time.monotonic()
             response = await self.provider.chat(
                 messages=messages,
                 tools=self.tools.get_definitions(),
@@ -193,6 +200,16 @@ class AgentLoop:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
+            if self._audit:
+                _duration_ms = (time.monotonic() - _t0_llm) * 1000
+                _usage = response.usage or {}
+                await self._audit.log_llm_call(
+                    model=self.model,
+                    tokens_in=_usage.get("prompt_tokens", 0),
+                    tokens_out=_usage.get("completion_tokens", 0),
+                    tool_calls_n=len(response.tool_calls),
+                    duration_ms=_duration_ms,
+                )
 
             if response.has_tool_calls:
                 tool_call_dicts = [
@@ -283,8 +300,16 @@ class AgentLoop:
         
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info(f"Processing message from {msg.channel}:{msg.sender_id}: {preview}")
-        
+
         key = session_key or msg.session_key
+        if self._audit:
+            await self._audit.log_channel_event(
+                direction="in",
+                channel=msg.channel,
+                session_id=key,
+                content_length=len(msg.content),
+            )
+
         session = self.sessions.get_or_create(key)
         
         # Handle slash commands
@@ -434,7 +459,15 @@ class AgentLoop:
         session.add_message("assistant", final_content,
                             tools_used=tools_used if tools_used else None)
         self.sessions.save(session)
-        
+
+        if self._audit:
+            await self._audit.log_channel_event(
+                direction="out",
+                channel=msg.channel,
+                session_id=key,
+                content_length=len(final_content),
+            )
+
         return OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
