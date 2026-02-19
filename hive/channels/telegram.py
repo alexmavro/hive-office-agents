@@ -111,8 +111,7 @@ class TelegramChannel(BaseChannel):
     BOT_COMMANDS = [
         BotCommand("start", "Start the bot"),
         BotCommand("new", "Start a new conversation"),
-        BotCommand("onboard", "Set up your profile (5 min)"),
-        BotCommand("factory_reset", "Reset all memory ⚠️"),
+        BotCommand("onboard", "Set up your profile"),
         BotCommand("help", "Show available commands"),
     ]
     

@@ -367,13 +367,28 @@ class AgentLoop:
         # confirmation before writing anything to memory.
         import re as _re
         _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        _AUDIO_EXTS = {".ogg", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".opus"}
         _URL_ONLY = _re.compile(r"^https?://\S+$")
 
         uploaded_docs = [
             p for p in (msg.media or [])
             if Path(p).suffix.lower() not in _IMAGE_EXTS
+            and Path(p).suffix.lower() not in _AUDIO_EXTS
         ]
-        if uploaded_docs:
+        audio_files = [
+            p for p in (msg.media or [])
+            if Path(p).suffix.lower() in _AUDIO_EXTS
+        ]
+        if audio_files:
+            # Cannot transcribe audio yet — acknowledge gracefully, keep context
+            current_message = (
+                "The user sent a voice message (audio file). "
+                "You cannot transcribe or play audio files yet. "
+                "Acknowledge that you received the voice note, tell them you can't process audio yet, "
+                "and ask them to type their message instead. "
+                "Do NOT ask 'yes to what?' or pretend you don't know what they sent."
+            )
+        elif uploaded_docs:
             # Strip auto-generated [file: ...] / [image: ...] markers to get clean user text
             user_text = _re.sub(r"\[[^\]]+:[^\]]+\]", "", msg.content).strip()
             current_message = get_document_intake_prompt(uploaded_docs, self.workspace, user_text)
