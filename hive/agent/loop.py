@@ -23,7 +23,7 @@ from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
-from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt
+from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt, get_link_intake_prompt
 from hive.agent.admin import factory_reset, CONFIRM_PHRASE
 from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
@@ -362,19 +362,24 @@ class AgentLoop:
         if session.message_count > _CAPACITY_LIMIT:
             asyncio.create_task(self._consolidate_memory(session))
 
-        # Document intake: when the user uploads a non-image file (PDF, DOCX, TXT, etc.),
-        # inject a processing mission so the Queen reads it and extracts info to memory.
-        # Images are excluded — they're sent to the LLM directly as vision input.
+        # Profile intake: detect uploaded documents or bare URLs and inject a structured
+        # mission so the Queen reads the content, shows a summary, and waits for
+        # confirmation before writing anything to memory.
+        import re as _re
         _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        _URL_ONLY = _re.compile(r"^https?://\S+$")
+
         uploaded_docs = [
             p for p in (msg.media or [])
             if Path(p).suffix.lower() not in _IMAGE_EXTS
         ]
         if uploaded_docs:
-            # Strip the auto-generated [file: ...] markers from user text to get clean context
-            import re as _re
+            # Strip auto-generated [file: ...] / [image: ...] markers to get clean user text
             user_text = _re.sub(r"\[[^\]]+:[^\]]+\]", "", msg.content).strip()
             current_message = get_document_intake_prompt(uploaded_docs, self.workspace, user_text)
+        elif _URL_ONLY.match(msg.content.strip()):
+            # Bare URL with no other content — treat as a profile/link to intake
+            current_message = get_link_intake_prompt(msg.content.strip(), self.workspace)
         else:
             current_message = msg.content
 

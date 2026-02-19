@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from hive.agent.onboarding import OnboardingFlow, get_onboarding_prompt, get_document_intake_prompt
+from hive.agent.onboarding import (
+    OnboardingFlow,
+    get_onboarding_prompt,
+    get_document_intake_prompt,
+    get_link_intake_prompt,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +134,7 @@ class TestGetOnboardingPrompt:
 
 
 # ---------------------------------------------------------------------------
-# get_document_intake_prompt()
+# get_document_intake_prompt() — privacy-first, confirm-before-save
 # ---------------------------------------------------------------------------
 
 class TestGetDocumentIntakePrompt:
@@ -155,6 +160,24 @@ class TestGetDocumentIntakePrompt:
         result = get_document_intake_prompt(["/some/file.txt"], tmp_path)
         assert "user.md" in result
 
+    def test_requires_confirmation_before_save(self, tmp_path):
+        """Critical: must not save until user confirms."""
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
+        assert "confirm" in result.lower() or "yes" in result.lower()
+        assert "only after" in result.lower()
+
+    def test_mentions_privacy_rule(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
+        assert "privacy" in result.lower() or "verbatim" in result.lower()
+
+    def test_mentions_archive(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
+        assert "archive" in result.lower()
+
+    def test_archive_path_in_workspace(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
+        assert str(tmp_path) in result  # archive is under workspace
+
     def test_includes_user_text_when_provided(self, tmp_path):
         result = get_document_intake_prompt(["/some/file.pdf"], tmp_path, user_text="Here's my CV")
         assert "Here's my CV" in result
@@ -172,3 +195,45 @@ class TestGetDocumentIntakePrompt:
         multi = get_document_intake_prompt(["/a.pdf", "/b.pdf"], tmp_path)
         assert "a file" in single
         assert "files" in multi
+
+
+# ---------------------------------------------------------------------------
+# get_link_intake_prompt() — fetch URL, extract, confirm, log
+# ---------------------------------------------------------------------------
+
+class TestGetLinkIntakePrompt:
+    def test_includes_url(self, tmp_path):
+        url = "https://linkedin.com/in/alex"
+        result = get_link_intake_prompt(url, tmp_path)
+        assert url in result
+
+    def test_mentions_web_fetch(self, tmp_path):
+        result = get_link_intake_prompt("https://example.com", tmp_path)
+        assert "web_fetch" in result
+
+    def test_mentions_write_file(self, tmp_path):
+        result = get_link_intake_prompt("https://example.com", tmp_path)
+        assert "write_file" in result
+
+    def test_requires_confirmation_before_save(self, tmp_path):
+        result = get_link_intake_prompt("https://example.com", tmp_path)
+        assert "confirm" in result.lower() or "yes" in result.lower()
+        assert "only after" in result.lower()
+
+    def test_mentions_privacy_rule(self, tmp_path):
+        result = get_link_intake_prompt("https://example.com", tmp_path)
+        assert "privacy" in result.lower() or "verbatim" in result.lower()
+
+    def test_logs_url_to_archive(self, tmp_path):
+        url = "https://example.com/about"
+        result = get_link_intake_prompt(url, tmp_path)
+        assert "links.md" in result
+        assert url in result
+
+    def test_includes_user_text_when_provided(self, tmp_path):
+        result = get_link_intake_prompt("https://example.com", tmp_path, user_text="my site")
+        assert "my site" in result
+
+    def test_handles_technical_pages_differently(self, tmp_path):
+        result = get_link_intake_prompt("https://example.com", tmp_path)
+        assert "technical" in result.lower() or "research" in result.lower()

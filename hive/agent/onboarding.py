@@ -1,14 +1,31 @@
-"""Onboarding for new users (/onboard command).
+"""Onboarding and profile intake for new users.
 
-LLM-driven design:
-  - /onboard injects a mission prompt into the LLM conversation
-  - The LLM conducts a friendly intake interview
-  - The LLM uses write_file to save structured summaries to memory files
-  - No state machine — the LLM handles the flow naturally, interprets answers intelligently
+Three intake paths share the same privacy-first pattern:
+  1. /onboard   — LLM-driven conversational interview, saves as it goes
+  2. File upload — reads doc, extracts, shows summary, saves only after confirmation
+  3. URL/link   — fetches page, extracts, shows summary, saves only after confirmation
+
+Privacy rules for document/link intake (DSGVO-aware):
+  - File content is processed through the LLM but not reproduced in responses
+  - Nothing is written to memory until the user explicitly confirms
+  - After saving, the source file is archived (read-only) in uploads/archive/
+  - Links are logged in uploads/archive/links.md after saving
 """
 
 from pathlib import Path
 
+
+# ---------------------------------------------------------------------------
+# Shared archive path helper
+# ---------------------------------------------------------------------------
+
+def _archive_path(workspace: Path) -> str:
+    return str((workspace / "uploads" / "archive").expanduser().resolve())
+
+
+# ---------------------------------------------------------------------------
+# /onboard — conversational interview
+# ---------------------------------------------------------------------------
 
 def get_onboarding_prompt(workspace: Path) -> str:
     """Return the onboarding mission text to inject as the LLM's task.
@@ -50,37 +67,100 @@ def get_onboarding_prompt(workspace: Path) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# File upload intake — read, extract, confirm, then save + archive
+# ---------------------------------------------------------------------------
+
 def get_document_intake_prompt(file_paths: list[str], workspace: Path, user_text: str = "") -> str:
     """Return the document intake mission for the LLM.
 
     Injected when the user uploads one or more non-image files. The Queen reads
-    them, determines what they are, and extracts useful information to memory.
+    them, extracts relevant info, shows a summary, and waits for explicit
+    confirmation before writing anything to memory. After saving, the source
+    file is archived (read-only).
+
+    Supported formats: PDF, DOCX, TXT, MD, HTML, CSV, JSON, YAML, and any
+    plain-text format the system can open. For unreadable binaries the Queen
+    will say so and suggest alternatives.
     """
     memory_path = str((workspace / "memory").expanduser().resolve())
+    archive = _archive_path(workspace)
     files_str = "\n".join(f"  {p}" for p in file_paths)
+    context_line = f'\nThe user also wrote: "{user_text}"\n' if user_text.strip() else ""
+    count_word = "a file" if len(file_paths) == 1 else f"{len(file_paths)} files"
+
+    return (
+        f"The user has uploaded {count_word} for you to review:\n"
+        f"{files_str}\n"
+        f"{context_line}\n"
+        "PRIVACY: This is external user data. Follow these rules strictly:\n"
+        "  - Do NOT reproduce the raw file content in your response\n"
+        "  - Summarise and interpret; never quote long passages verbatim\n"
+        "  - Do NOT write anything to memory yet — confirmation required first\n\n"
+        "Steps:\n"
+        "1. Read the file using read_file.\n"
+        "   - If content looks garbled or binary, try exec('pdftotext <path> -') for PDFs\n"
+        "   - If still unreadable, tell the user: suggest plain text, markdown, or PDF export\n\n"
+        "2. For profile/context documents (CV, LinkedIn export, company bio, brand guide):\n"
+        "   a) Extract the relevant facts — interpreted, in your own words, not verbatim\n"
+        "   b) Show the user a clear summary: what you found, and exactly what you'd save:\n"
+        f"      • identity/user.md — name, role, background, what they do\n"
+        f"      • identity/constraints.md — non-negotiables (if mentioned)\n"
+        f"      • identity/preferences.md — working style, communication (if mentioned)\n"
+        f"      • systems/infrastructure.md — technical setup (if mentioned)\n"
+        "   c) End with: 'Shall I save this? Reply yes to confirm or tell me what to change.'\n\n"
+        "3. ONLY after the user confirms (yes / save it / looks good / etc.):\n"
+        "   a) Write the summaries to the memory files using write_file\n"
+        f"  b) Archive the source: exec('mkdir -p {archive} && mv <path> {archive}/ && chmod 444 {archive}/<filename>')\n"
+        "   c) Confirm briefly: what was saved and where the original is archived\n\n"
+        "4. For technical files (code, config, data, logs): help with what they need instead.\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Link/URL intake — fetch, extract, confirm, then save + log
+# ---------------------------------------------------------------------------
+
+def get_link_intake_prompt(url: str, workspace: Path, user_text: str = "") -> str:
+    """Return the link intake mission for the LLM.
+
+    Injected when the user sends a bare URL (profile page, LinkedIn, company site, etc.).
+    Same privacy-first flow as document intake: extract → show summary → confirm → save.
+    The URL is logged to the archive after saving.
+    """
+    memory_path = str((workspace / "memory").expanduser().resolve())
+    archive = _archive_path(workspace)
     context_line = f'\nThe user also wrote: "{user_text}"\n' if user_text.strip() else ""
 
     return (
-        f"The user has uploaded {'a file' if len(file_paths) == 1 else 'files'}:\n"
-        f"{files_str}\n"
+        f"The user has sent a link:\n  {url}\n"
         f"{context_line}\n"
+        "PRIVACY: Treat this as external user data. Follow these rules strictly:\n"
+        "  - Do NOT reproduce large blocks of page content in your response\n"
+        "  - Summarise and interpret; never quote long passages verbatim\n"
+        "  - Do NOT write anything to memory yet — confirmation required first\n\n"
         "Steps:\n"
-        "1. Read the file(s) using read_file.\n"
-        "   - If content looks garbled or binary (e.g. a PDF), try: exec with 'pdftotext <path> -'\n"
-        "   - If you still can't read it, tell the user what format works best.\n"
-        "2. Decide what it is:\n"
-        "   a) Profile/context document (CV, LinkedIn export, company bio, brand guide, about page):\n"
-        "      Extract and save structured summaries using write_file — interpreted facts, not verbatim:\n"
-        f"      {memory_path}/identity/user.md — who they are, their role, background, context\n"
-        f"      {memory_path}/identity/constraints.md — non-negotiables (if mentioned)\n"
-        f"      {memory_path}/identity/preferences.md — working style (if mentioned)\n"
-        f"      {memory_path}/systems/infrastructure.md — technical setup (if mentioned)\n"
-        "      Then tell the user what you've learned and saved — conversationally, not a report.\n"
-        "   b) Technical file (code, config, data, logs):\n"
-        "      Help with what they need. Ask if the intent isn't clear.\n"
-        "   c) Something else: use good judgement.\n"
+        "1. Use web_fetch to read the page content.\n"
+        "   - If the page is inaccessible or too large, tell the user and ask them to paste the text.\n\n"
+        "2. For profile/context pages (LinkedIn, personal site, company about page, portfolio):\n"
+        "   a) Extract the relevant facts — interpreted, in your own words\n"
+        "   b) Show the user a clear summary: what you found, and exactly what you'd save:\n"
+        f"      • identity/user.md — name, role, background, what they do\n"
+        f"      • identity/constraints.md — non-negotiables (if mentioned)\n"
+        f"      • identity/preferences.md — working style (if mentioned)\n"
+        f"      • systems/infrastructure.md — technical setup (if mentioned)\n"
+        "   c) End with: 'Shall I save this? Reply yes to confirm or tell me what to change.'\n\n"
+        "3. ONLY after the user confirms:\n"
+        "   a) Write the summaries to the memory files using write_file\n"
+        f"  b) Log the source URL: exec('mkdir -p {archive} && echo \"{url}\" >> {archive}/links.md')\n"
+        "   c) Confirm briefly: what was saved\n\n"
+        "4. For technical/research pages (docs, articles, tools): help with what they need instead.\n"
     )
 
+
+# ---------------------------------------------------------------------------
+# OnboardingFlow — thin wrapper for loop.py and tests
+# ---------------------------------------------------------------------------
 
 class OnboardingFlow:
     """Onboarding helper (LLM-driven).
