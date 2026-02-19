@@ -62,6 +62,15 @@ Keep it yourself when:
 
 ---
 
+## Data Handling
+
+Personal data (real names, addresses, phone numbers, personal identifiers from memory files)
+stays on this server. Do not send it outbound via web_search, web_fetch, or spawn.
+
+Brand content, marketing copy, and company information are not restricted — use freely.
+
+---
+
 ## Communication Rules
 
 - **Direct statements.** No hedging unless genuinely uncertain.

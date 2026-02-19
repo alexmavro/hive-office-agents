@@ -166,9 +166,9 @@ class TestGetDocumentIntakePrompt:
         assert "confirm" in result.lower() or "yes" in result.lower()
         assert "only after" in result.lower()
 
-    def test_mentions_privacy_rule(self, tmp_path):
+    def test_instructs_to_interpret_not_quote(self, tmp_path):
         result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
-        assert "privacy" in result.lower() or "verbatim" in result.lower()
+        assert "interpreted" in result.lower() or "your own words" in result.lower()
 
     def test_mentions_archive(self, tmp_path):
         result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
@@ -220,9 +220,9 @@ class TestGetLinkIntakePrompt:
         assert "confirm" in result.lower() or "yes" in result.lower()
         assert "only after" in result.lower()
 
-    def test_mentions_privacy_rule(self, tmp_path):
+    def test_instructs_to_interpret_not_quote(self, tmp_path):
         result = get_link_intake_prompt("https://example.com", tmp_path)
-        assert "privacy" in result.lower() or "verbatim" in result.lower()
+        assert "interpreted" in result.lower() or "your own words" in result.lower()
 
     def test_logs_url_to_archive(self, tmp_path):
         url = "https://example.com/about"
