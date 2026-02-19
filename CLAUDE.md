@@ -247,8 +247,8 @@ S7 (emission stream) <-- last, needs everything stable
 | **S0** | Scaffold + Telegram verified | **COMPLETE** — gate commit `106e6a4`, tag `queen-alpha_S0_baseline` |
 | **S1** | JSONL DAG memory (replace HISTORY.md) | **COMPLETE** — gate commit `53e0689`, tag `queen-alpha_S1_dag_memory` |
 | **S2** | Memory architecture (hierarchy, retrieval, confidence, signals, onboarding, factory reset) | **COMPLETE** — 182 tests, tag `queen-alpha_S2_memory_arch` |
-| **S3** | Docker executor (sandboxed Python execution, AST filter) | Not started |
-| **S4** | Hive manager (worker spawning, IPC, registry) | Not started. Depends on S3. |
+| **S3** | Docker executor (sandboxed Python execution, AST filter) | **COMPLETE** — 257 tests, tag `queen-alpha_S3_docker_executor` |
+| **S4** | Hive manager (worker spawning, registry, notification) | **NOT STARTED** — spec complete, ready to build. See STATUS.md S4 section. |
 | **S5** | Skill forge (Queen creates her own tools) | Not started. Can parallel S3/S4. |
 | **S6** | Safety rails (circuit breaker, budget gate, depth limits) | Not started. Depends on S1. |
 | **S7** | Emission stream (WebSocket live observation) | Not started. Last step. |
@@ -257,10 +257,12 @@ S7 (emission stream) <-- last, needs everything stable
 
 | Role | Model | Notes |
 |------|-------|-------|
-| Builder (Claude Code) | Claude Opus via subscription | Architecture work |
-| Queen (dev/test) | Gemini 2.5 Flash via API | EUR 200 in credits, fast + cheap |
-| Queen (production) | Gemini 2.5 Pro or Claude Sonnet | Upgrade when stable and costs clear |
-| Workers | Gemini Flash or Qwen and other opensource models via OpenRouter | open to extension |
+| Builder (Claude Code) | Claude Sonnet 4.6 via subscription | Architecture + implementation work |
+| Queen (current) | `gemini/gemini-3-pro-preview` | Thinking model. Upgraded 2026-02-19. `maxTokens: 65536` (thinking overhead). |
+| Workers | TBD — likely Gemini Flash or Qwen via OpenRouter | Cheaper model acceptable; workers do bounded tasks |
+| Queen (future) | Promote to stable Gemini 3 Pro when out of preview | Same API key, just drop `-preview` suffix |
+
+**Token budget note:** `maxTokens` in config is a hard cap on EVERY LLM call — every tool-call planning step, every subagent, every consolidation write. It is NOT just for chat answers. Thinking models consume tokens for reasoning before outputting a word. 65536 = full ceiling of Gemini 3 Pro's output limit. No cost penalty for unused budget.
 
 ## Environment (Verified 2026-02-18)
 
@@ -275,7 +277,7 @@ S7 (emission stream) <-- last, needs everything stable
 | Config | `~/.hive/config.json` | Initialized via `hive onboard` |
 | Workspace | `~/.hive/workspace/` | Created (AGENTS.md, SOUL.md, USER.md, memory/) |
 | WhatsApp bridge | `/root/queen-alpha/bridge/dist/` | Built, 0 vulnerabilities |
-| Test suite | 182/182 passed | All green |
+| Test suite | 257/257 passed | All green (S3 added docker sandbox + exec tool tests) |
 | GitHub CLI | `gh` authenticated as Lexi-Energy | Working |
 | Git identity | Lexi-Energy (noreply email) | Configured |
 
@@ -308,6 +310,104 @@ Channel -> InboundMessage -> Bus -> Agent Loop -> LLM -> Tool Exec -> OutboundMe
 
 ### Config
 `~/.hive/config.json` — sections: `agents`, `channels`, `providers`, `gateway`, `tools`
+
+## Worker Architecture (S4 design — 2026-02-19)
+
+### The two-layer isolation model
+
+```
+Code isolation  = docker_exec   (DockerSandbox — already built in S3)
+Worker isolation = WorkerLoop   (AgentLoop subclass — S4)
+```
+
+These are different concerns. docker_exec sandboxes *code*. WorkerLoop sandboxes *agency*.
+
+### Tool rights
+
+| Actor | exec | docker_exec | spawn | web_search | read/write_file | message | workers |
+|-------|------|-------------|-------|------------|-----------------|---------|---------|
+| Queen | ✅   | ✅          | ✅    | ✅         | ✅              | ✅      | ✅      |
+| Worker (Temp) | ❌ | ✅       | ❌    | ✅         | ✅              | ❌      | ❌      |
+
+`exec` (host shell, root) stays with Queen only. Workers cannot touch the host, cannot message the user directly, cannot spawn other workers.
+
+### Spawning rules
+
+- **Only Queen spawns workers.** Workers do not spawn workers (current).
+- **Future sub-spawning**: if opened later, worker-created children are always Temps — never promotable to Consort.
+- Queen captures `session_id` + `channel` at spawn time so the worker knows where to report back.
+
+### Lifecycle
+
+```
+Queen calls spawn(name, task, tools, max_iterations)
+  → WorkerRegistry.register(worker)
+  → WorkerLoop starts in background asyncio task
+  → Queen sends: "Started [name]. I'll notify you when done."
+
+WorkerLoop runs:
+  → Each step: optional progress ping via bus (verbose mode)
+  → On complete: completion_callback → bus.publish → Telegram
+  → On timeout (max_iterations): provide_final_answer() synthesis → notify → die
+  → On error: error summary + step trace → notify → die
+
+Queen receives notification, relays to user if needed.
+```
+
+### Concurrency cap
+
+Config: `maxWorkers` (default 3). At cap: Queen queues or rejects — always explains to user.
+
+### Transparency contract
+
+The user is not on the VPS. Queen is their only window. She must never make them ask "what's happening?":
+- Worker starts → announce it
+- Worker finishes → deliver result
+- Worker fails → deliver step trace + ask if retry
+- On demand: `workers` tool shows active/recent registry
+
+### Consort promotion
+
+A Temp that does good work can be promoted: `memory/workers/{name}/` created for it. Future runs of same-named worker inherit that context. Promotion is a Queen decision, never automatic.
+
+### Post-S4 worker ideas (not in scope yet)
+
+- Worker-spawning workers (children = Temps only, never Consorts)
+- Consort teams (multiple Consorts collaborating on a defined workflow = Hive-Teams)
+- Per-worker model override (cheaper model for simple workers)
+- Worker cost tracking (tokens used per worker, per session)
+- Worker memory search (Consort can query its own memory slice)
+- Streaming progress to Telegram (token-by-token from worker)
+
+## Smolagents Reference (reviewed 2026-02-19)
+
+Location: `/root/reference-repos/smolagents-main` (HuggingFace, Apache 2.0, v1.25.0.dev0)
+Analysis: `/root/reference-repos/useful_for_us.md`
+
+### What we borrowed
+
+- **Agent-as-tool interface**: sub-agent exposes `inputs = {task: str, additional_args: object?}`, `output_type = "string"`. Appears as a named tool in orchestrator's registry. Clean, no special IPC.
+- **Completion report format**: `"Here is the final answer from {name}:\n{result}\n\n[step summary]"`
+- **`provide_final_answer()` grace exit**: on max_steps exceeded, one extra LLM call synthesises what was accomplished before dying.
+- **`provide_run_summary` pattern**: worker appends step-by-step trace to its report — orchestrator gets full visibility.
+- **Parallel tool execution**: `ToolCallingAgent` with `max_tool_threads` — for future consideration.
+- **`reset=False` resume**: re-summon a worker and it continues from existing memory. Useful for Consorts.
+
+### What we did NOT take
+
+| smolagents thing | Why not |
+|---|---|
+| `LocalPythonExecutor` (AST interpreter) | We have Docker. Theirs is in-process and weaker. |
+| `CodeAgent` (LLM writes Python strings) | Doesn't fit our tool-call architecture. |
+| Sync blocking `run()` | We're async-native. |
+| Hub serialisation / Gradio UI | Not relevant to our deployment. |
+| `AgentMemory` step list | We have JSONL DAG sessions (richer, persistent). |
+
+### Key gotchas noted
+
+- `agent.state` is NOT cleared by `reset=True` — only `memory.steps`. State accumulates. (We don't have this problem — our sessions are DAG-based.)
+- Managed agents can't use remote executors (E2B/Docker) — they're in-process only. We sidestep this because our workers use docker_exec as a tool, not as the execution environment.
+- `AgentGenerationError` (model API failure) stops the run entirely — not retried at agent level. Retries happen inside the model class. Same design as ours.
 
 ## Reference Documents
 

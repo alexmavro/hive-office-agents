@@ -120,16 +120,86 @@ Observed from live Telegram testing (2026-02-19). Partially fixed, partially def
 - `pip install` works inside container — user site-packages pre-created in image
 - Files written to `/sandbox` are available during the run for exchange
 
+## Post-S3 additions (committed, not in original gate)
+
+- **Tool suppression bug fixed** (`context.py`): "Reply directly with text" rule was silently blocking ALL tool calls. Fixed to explicitly instruct tool use. Commit `e7ef059`.
+- **Self-knowledge updated**: `workspace/SOUL.md` + `workspace/AGENTS.md` rewritten with exec/docker_exec two-mode execution table, pip install patterns, restart command. Copied to `~/.hive/workspace/`. Commit `0acb854`.
+- **Model upgraded**: `gemini/gemini-2.5-flash` → `gemini/gemini-3-pro-preview` (thinking model, released Feb 2026). `maxTokens`: `8192` → `65536` (thinking models consume tokens before output; the cap was silently strangling complex tasks). Config only — `~/.hive/config.json`.
+
+## S4 Architecture — Decisions Made (2026-02-19)
+
+### From smolagents review
+
+Reviewed `/root/reference-repos/smolagents-main` (HuggingFace, Apache 2.0). Key insight that aligns with our design:
+
+> **Multi-agent is not a separate framework — agents are just callable tools with a standard interface.**
+
+Stealing from smolagents:
+- **Worker interface contract**: `inputs = {"task": str, "additional_args": object(nullable)}`, `output_type = "string"`. Sub-agent appears as a named tool in Queen's registry.
+- **Completion report format**: `"Here is the final answer from {name}:\n{answer}\n\n[step summary if requested]"`
+- **`provide_run_summary` pattern**: worker appends a summary of all steps to its report — Queen sees full trace of what the worker did.
+- **Grace on max_steps**: when iteration cap hit, worker makes one extra LLM call to synthesise what was accomplished before dying (`provide_final_answer()` pattern).
+- **`reset=False` resume**: useful for Consorts — re-summon a named worker and it continues from its memory, no context loss.
+
+NOT taking from smolagents:
+- `LocalPythonExecutor` AST interpreter — we have Docker (superior)
+- `CodeAgent` (LLM writes Python strings) — doesn't fit our tool-call model
+- Sync blocking architecture — we're async
+- Hub serialisation, Gradio UI — irrelevant
+
+### Worker design decisions (Alex + session 2026-02-19)
+
+**1. What a worker IS**
+A Temp worker is a lightweight `AgentLoop` instance — NOT a docker_exec call. Workers have their own full tool-call loop with capped `max_iterations` and a restricted tool subset. They call `docker_exec` internally when they need to run code. docker_exec = code isolation. Worker = agent isolation. These are different layers.
+
+**2. The critical safety boundary: `exec` stays with Queen only**
+Workers receive: `docker_exec`, `web_search`, `read_file`, `write_file`, `report_task`.
+Workers do NOT receive: `exec` (host shell), `message` (direct Telegram access), `spawn` (no spawning).
+Only Queen has root shell. This is the real security wall — Docker handles code loops, but Queen holds the host.
+
+**3. Queen-only spawning (for now)**
+Only the Queen spawns workers. Workers cannot spawn workers. Queen has direct control over: what context each worker gets, what tools it can use, quality-checking the output.
+
+**4. Sub-spawning rule (future)**
+When worker-spawning is eventually opened, any children a worker creates are always Temps only — never promotable to Consort. A worker cannot build its own permanent team.
+
+**5. Background-first design**
+Workers run async in the background. Queen returns immediately to the conversation:
+`"Started researcher. I'll notify you when it's done."`
+When worker completes → callback fires → message via bus → Telegram notification to user.
+The user is not on the VPS. The bus is the only window. Transparency is the obligation.
+
+**6. Concurrency cap**
+Config: `maxWorkers` (default: 3). Spawn at cap → Queen tells user "3 workers running, queuing this or dropping it — your call."
+
+**7. Proactive status reporting**
+Queen must never make the user ask "what's happening?":
+- **On start**: "Starting [name]: [one-line task summary]"
+- **On completion**: "Done: [name] — [result summary]"
+- **On failure/timeout**: "Failed: [name] at step [N] — [last action]. Here's what it did: [step list]. Do you want me to retry?"
+- **On demand**: `workers` tool returns table of active/completed workers with status, iterations, last action.
+- **Progress pings** (optional, verbose mode): every N iterations worker emits step update.
+
+**8. Worker Registry**
+Persisted at `workspace/workers/registry.json`. Tracks: id, name, task, started_at, status, iterations_used, last_action, result. Survives gateway restart — Queen can answer "what workers ran this week?" from this file.
+
+**9. Self-Terminator protocol**
+On `max_iterations` exceeded: worker makes one final LLM call to synthesise what was accomplished ("provide_final_answer" pattern), marks itself `status: timeout`, notifies Queen via callback. No zombie workers. No silent death.
+
+**10. Consort promotion**
+A Temp does good work → Queen promotes it: give it a name, create `memory/workers/{name}/`. Promotion means it gets a persistent memory slice for its domain. Future runs of same-named worker inherit that context. Promotion is a Queen decision, not automatic.
+
 ## Next step: S4 — Hive Manager
 
-Workers + spawning. Queen can now have workers run in Docker. Smolagents review before speccing.
+Build stages:
 
-Key things to spec with Alex before building:
-- Worker anatomy (what does a Temp worker look like? just a docker_exec call? or a full agent?)
-- IPC: how does the worker report back? (file in /sandbox? message bus? direct return?)
-- Worker registry (how does Queen track what workers are running?)
-- Consorts: how does a Temp get promoted? what state does it keep?
-- Self-Terminator protocol: what triggers kill vs keep?
+- [ ] **S4.1**: `WorkerLoop` — `AgentLoop` subclass with restricted tool set (no exec/spawn/message), `max_iterations` cap (hard), `completion_callback`, `progress_callback`. Worker registry write on start/complete/fail.
+- [ ] **S4.2**: `spawn` tool — Queen creates a named background worker. Captures session_id + channel at spawn time. Returns immediately. Enforces concurrency cap.
+- [ ] **S4.3**: Completion notification path — `completion_callback` → `bus.publish()` → Telegram. Failure notification includes step trace.
+- [ ] **S4.4**: `workers` status tool + `kill_worker` tool. Queen can list and terminate.
+- [ ] **S4.5**: Config: `maxWorkers` (default 3), worker tool allowlist. Gate: concurrency cap enforced, no zombie workers, all 257+ tests green.
+
+Gate tag: `queen-alpha_S4_hive_manager`
 
 ## Strategic decisions (2026-02-19)
 
@@ -161,8 +231,7 @@ are structural advantages, not features.
 
 ## Open questions for next session
 
-- S4 worker anatomy: Temp = docker_exec call? or full mini-agent in container?
-- S4 IPC: worker reports back via file in /sandbox? message bus? direct tool return?
-- Smolagents review: Alex wants to share patterns from smolagents-main before S4 spec
-- First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)?
-- Hive-Teams spec: when does Alex want to detail this?
+- First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)? — deferred, not blocking
+- Hive-Teams spec: when does Alex want to detail this? — post-S7, not blocking S4
+- S4.1 detail: should WorkerLoop be a subclass of AgentLoop or a separate class that delegates? (discuss before building)
+- Worker progress pings: on by default or verbose-only? UX call for Alex.
