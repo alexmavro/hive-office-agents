@@ -21,7 +21,7 @@ from hive.agent.tools.message import MessageTool
 from hive.agent.tools.spawn import SpawnTool
 from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
-from hive.agent.memory import MemoryStore
+from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.onboarding import OnboardingFlow
 from hive.agent.admin import factory_reset, CONFIRM_PHRASE
@@ -73,6 +73,10 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+
+        # Initialise memory/ hierarchy from templates on first boot (idempotent)
+        _templates_dir = Path(__file__).parent.parent.parent / "templates" / "memory"
+        initialize_memory_hierarchy(workspace, _templates_dir if _templates_dir.exists() else None)
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)

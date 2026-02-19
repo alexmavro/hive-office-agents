@@ -55,41 +55,56 @@ Context gets compressed and sessions restart. To stay in the loop:
 
 Rule: if a new session can't figure out what to do next from CLAUDE.md + STATUS.md + git log, we failed at documentation.
 
-## Repository Layout
+## Server Layout
 
 ```
-/root/queen-alpha/                 # Project root
-├── hive/                          # Core Python package (renamed from nanobot, 3,668 lines)
-│   ├── agent/                     # Agent loop, context builder, memory, skills, subagents
-│   │   ├── loop.py                # ReAct loop (LLM <-> tool execution, max 20 iterations)
-│   │   ├── context.py             # System prompt assembly (SOUL/AGENTS/USER.md + memory + skills)
-│   │   ├── memory.py              # Two-layer: MEMORY.md (facts) + HISTORY.md (event log)
-│   │   ├── skills.py              # Progressive skill loader (always-loaded vs on-demand)
-│   │   ├── subagent.py            # Background task execution in isolated contexts
-│   │   └── tools/                 # Built-in tools (registry, filesystem, shell, web, message, spawn, cron, mcp)
-│   ├── channels/                  # 9 chat integrations (telegram, whatsapp, discord, slack, email, etc.)
-│   ├── bus/                       # Async pub/sub message routing (inbound/outbound queues)
-│   ├── config/                    # Pydantic config models + JSON loader
-│   ├── providers/                 # 16 LLM providers via LiteLLM
-│   ├── cron/                      # Scheduled task service (at/every/cron)
-│   ├── heartbeat/                 # Proactive agent wake-up (HEARTBEAT.md every 30 min)
-│   ├── session/                   # JSONL conversation storage
-│   ├── skills/                    # Bundled skills (github, weather, tmux, summarize, etc.)
-│   ├── cli/                       # Typer CLI (onboard, agent, gateway, status, channels, cron)
-│   └── utils/                     # Shared utilities
-├── bridge/                        # WhatsApp bridge (TypeScript/Node.js, Baileys)
-├── docs/                          # Planning & reference documents
-│   ├── hive_office_revised_plan_v03.md    # Build plan (S0-S7)
-│   ├── hive_office_test_protocol.md       # Two-layer testing protocol
-│   ├── PIMONO_DAG_REFERENCE_v2.md         # JSONL DAG spec + Python port code (for S1)
-│   └── hive_office_brainstorm_archive.md  # Archived vision docs (not actionable)
-├── workspace/                     # Template workspace files (copied to ~/.hive/workspace/)
-├── tests/                         # pytest suite (55 tests)
-├── pyproject.toml                 # Package: hive-office-agents v0.1.0
-├── Dockerfile                     # Container build (uv + Node.js 20)
-├── NANOBOT_BASELINE.md            # Upstream nanobot attribution & snapshot info
-├── STATUS.md                      # Current build progress, blockers, decisions
-└── CLAUDE.md                      # This file
+/root/                             # Server home
+├── queen-alpha/                   # ← GIT REPO (the codebase). git push = backed up.
+│   ├── hive/                      # Core Python package
+│   │   ├── agent/                 # loop.py, context.py, memory.py, retrieval.py,
+│   │   │                          #   consolidation.py, onboarding.py, admin.py,
+│   │   │                          #   skills.py, subagent.py, tools/
+│   │   ├── channels/              # 9 chat integrations (telegram, whatsapp, etc.)
+│   │   ├── bus/                   # Async pub/sub message routing
+│   │   ├── config/                # Pydantic config models + JSON loader
+│   │   ├── providers/             # 16 LLM providers via LiteLLM
+│   │   ├── cron/                  # Scheduled task service
+│   │   ├── heartbeat/             # Proactive agent wake-up
+│   │   ├── session/               # JSONL DAG conversation storage
+│   │   ├── skills/                # Bundled skills (github, weather, tmux, etc.)
+│   │   ├── cli/                   # hive CLI (gateway, agent, status, etc.)
+│   │   └── utils/
+│   ├── templates/                 # Memory hierarchy templates (git-tracked, no user data)
+│   │   └── memory/                # Copied to ~/.hive/workspace/memory/ on first boot
+│   ├── workspace/                 # Template workspace files (SOUL.md, AGENTS.md, etc.)
+│   ├── bridge/                    # WhatsApp bridge (TypeScript/Node.js)
+│   ├── docs/                      # Planning, specs, references (git-tracked)
+│   │   └── specs/                 # Alex's vision docs (memory architecture, build specs)
+│   ├── tests/                     # pytest suite (182 tests)
+│   ├── CLAUDE.md                  # Project brain — read first every session
+│   └── STATUS.md                  # Current step, decisions, open questions
+│
+├── .hive/                         # ← RUNTIME DATA. Back this up manually.
+│   ├── config.json                # API keys, bot token, channel config (chmod 600)
+│   ├── sessions/                  # Conversation history (JSONL DAG files)
+│   └── workspace/                 # Queen's working directory
+│       ├── SOUL.md, AGENTS.md     # Core behavior rules (from queen-alpha/workspace/)
+│       ├── memory/                # LEARNING — everything the Queen knows
+│       │   ├── MEMORY.md          # Rich long-term facts (populated, valuable)
+│       │   ├── identity/          # user.md, constraints.md, preferences.md (after /onboard)
+│       │   ├── systems/           # infrastructure.md, tools.md
+│       │   ├── projects/          # per-project working memory
+│       │   ├── procedural/        # workflows/ and fixes/
+│       │   ├── lessons/           # failures.md, patterns.md, corrections.md
+│       │   └── skills/            # skills_registry.json
+│       └── get_to_know_alex_game.md  # Game session from Feb 18
+│
+└── reference-repos/               # Read-only reference material. No backup needed.
+    ├── pi-mono-main/              # pi-mono DAG reference (used for S1)
+    ├── n8n-workflows-main/
+    ├── smolagents-main/
+    ├── awesome-agent-skills/
+    └── awesome-claude-code-subagents/
 ```
 
 ## Build Plan (S0–S7)
@@ -174,7 +189,6 @@ Channel -> InboundMessage -> Bus -> Agent Loop -> LLM -> Tool Exec -> OutboundMe
 - **Consolidation** (`hive/agent/consolidation.py`): 6 signal types → 6 memory writers (workflow, failure, correction, decision, pattern, skill)
 - **Onboarding** (`hive/agent/onboarding.py`): `/onboard` — 4-phase state machine, writes to memory/identity/ and memory/systems/
 - **Factory reset** (`hive/agent/admin.py`): `/factory-reset` — backup zip + wipe memory/ + sessions/ + reinitialise
-- **Session DAG** (`hive/session/dag.py`): JSONL tree sessions. Each message is a node with parent_id. build_context() reconstructs the branch for the LLM. compact() embeds summaries in the tree.
 - **Session DAG** (`hive/session/dag.py`): JSONL tree sessions. Each message is a node with parent_id. build_context() reconstructs the branch for the LLM. compact() embeds summaries in the tree.
 - **Context** (`hive/agent/context.py`): Assembles system prompt from bootstrap files + memory + skills
 - **Providers** (`hive/providers/registry.py`): 16 providers via ProviderSpec, LiteLLM routing
