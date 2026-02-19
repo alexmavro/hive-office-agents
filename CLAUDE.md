@@ -87,15 +87,22 @@ Before building anything, ask: **where does this belong?**
 | Queen's *personal name* (given by user) | Personal data | `memory/identity/user.md` |
 | Operational rules (SOUL.md) | Core | `workspace/SOUL.md` |
 | User's name, address, preferences | Personal data | `memory/identity/` |
+| **User's language preference** | **Personal data** | `memory/identity/preferences.md` |
+| **User's constraints** ("never lie") | **Personal data** | `memory/identity/constraints.md` |
 | Memory hierarchy *structure* (templates) | Core | `templates/memory/` |
 | Memory hierarchy *content* (learned facts) | Personal data | `~/.hive/workspace/memory/` |
 | Tool definitions | Core | `hive/agent/tools/` |
-| Queen's created skills | Personal data | `memory/skills/` |
+| Queen's created skills (system) | Core | `hive/skills/` |
+| **User-created / Queen-written skills** | **Personal data** | `~/.hive/workspace/skills/` |
 | Session history | Personal data | `~/.hive/sessions/` |
 | Channel config, API keys | Personal data | `~/.hive/config.json` |
 
 **Principle:** Core ships with every Queen instance. Personal data belongs to the user and wipes cleanly.
 If a new user installs the Hive, they should get the same core — and zero of the previous user's data.
+
+**When in doubt:** ask "would this make sense on a fresh install for a different user?" If yes → personal data.
+User-created content (learned facts, skills the Queen wrote, preferences, project data) is **always** personal data,
+even if it lives in the workspace directory. Never hardcode user-specific content into core files.
 
 ## Gateway Routine (every session)
 

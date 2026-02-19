@@ -164,12 +164,23 @@ class DagSession:
 
         if compaction:
             messages = [{"role": "system", "content": f"[Earlier conversation summary]: {compaction.summary}"}]
-            past_boundary = False
-            for entry in path:
-                if entry.id == compaction.first_kept_entry_id:
-                    past_boundary = True
-                if past_boundary and isinstance(entry, MessageEntry):
-                    messages.append({"role": entry.role, "content": entry.content})
+            if not compaction.first_kept_entry_id:
+                # archive_all compaction: nothing kept from before.
+                # Include all MessageEntry nodes that appear AFTER this compaction in the path.
+                past_compaction = False
+                for entry in path:
+                    if entry.id == compaction.id:
+                        past_compaction = True
+                        continue
+                    if past_compaction and isinstance(entry, MessageEntry):
+                        messages.append({"role": entry.role, "content": entry.content})
+            else:
+                past_boundary = False
+                for entry in path:
+                    if entry.id == compaction.first_kept_entry_id:
+                        past_boundary = True
+                    if past_boundary and isinstance(entry, MessageEntry):
+                        messages.append({"role": entry.role, "content": entry.content})
             return messages
         else:
             return [
