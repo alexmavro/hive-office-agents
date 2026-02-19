@@ -70,8 +70,31 @@ Hive-Queen  (LAW, root, crowned)
 - The plan gets amended whenever we learn something that changes the approach
 - The builder (Claude Code) is ALWAYS free to suggest different approaches
 - Daily recap and test sessions are the checkpoint for plan adjustments
-- Alex (the user) tests via Telegram for experience quality; Claude Code tests via pytest for correctness
+- Alex (she/her) tests via Telegram for experience quality; Claude Code tests via pytest for correctness
 - Two-layer testing protocol: see `docs/hive_office_test_protocol.md`
+
+## Gateway Routine (every session)
+
+**After any code change — restart the gateway:**
+```bash
+kill $(pgrep -f "hive gateway") && sleep 2
+source /root/queen-alpha/.venv/bin/activate
+nohup hive gateway >> /root/queen-alpha/gateway.log 2>&1 &
+sleep 4 && tail -20 /root/queen-alpha/gateway.log
+```
+
+**Check the log before assuming code works:**
+```bash
+tail -50 /root/queen-alpha/gateway.log
+```
+
+**Stale process check** — if process start time < last commit time, restart:
+```bash
+ps -o pid,lstart -p $(pgrep -f "hive gateway")
+git -C /root/queen-alpha log --oneline -1
+```
+
+Alex tests live on Telegram. Her feedback and the gateway log are real-time QA — use both.
 
 ## Constraints
 
