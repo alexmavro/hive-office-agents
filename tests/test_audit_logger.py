@@ -293,3 +293,109 @@ class TestCheckSizeGb:
 
     def test_empty_dir_returns_zero(self, tmp_path):
         assert check_size_gb(tmp_path / "nonexistent") == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Reporter
+# ---------------------------------------------------------------------------
+
+class TestReporter:
+    from hive.audit.reporter import generate_daily_report, _build_report
+
+    def _sample_events(self) -> list[dict]:
+        return [
+            {
+                "type": "system", "event": "gateway_start",
+                "ts": "2026-01-15T08:00:00+00:00", "pid": 12345, "model": "gemini/gemini-2.0-flash",
+            },
+            {
+                "type": "llm_call", "model": "gemini/gemini-2.0-flash",
+                "tokens_in": 1000, "tokens_out": 200, "tool_calls_n": 2,
+                "duration_ms": 1500.0, "ts": "2026-01-15T08:01:00+00:00",
+            },
+            {
+                "type": "tool_call", "actor": "queen", "tool": "docker_exec",
+                "args": {"lang": "python"}, "ok": True, "duration_ms": 800.0,
+                "ts": "2026-01-15T08:01:05+00:00",
+            },
+            {
+                "type": "tool_call", "actor": "queen", "tool": "bash",
+                "args": {"cmd": "ls"}, "ok": False, "duration_ms": 50.0,
+                "error": "Permission denied", "ts": "2026-01-15T08:02:00+00:00",
+            },
+            {
+                "type": "llm_call", "model": "gemini/gemini-2.0-flash",
+                "tokens_in": 60_000, "tokens_out": 500, "tool_calls_n": 0,
+                "duration_ms": 5000.0, "anomalies": ["tokens_in>50000"],
+                "ts": "2026-01-15T08:03:00+00:00",
+            },
+            {
+                "type": "channel_event", "direction": "in", "channel": "telegram",
+                "session_id": "telegram:123", "content_length": 42,
+                "ts": "2026-01-15T08:00:30+00:00",
+            },
+        ]
+
+    def test_report_contains_date(self, tmp_path):
+        from hive.audit.reporter import _build_report
+        md = _build_report("2026-01-15", self._sample_events())
+        assert "2026-01-15" in md
+
+    def test_report_contains_summary_section(self, tmp_path):
+        from hive.audit.reporter import _build_report
+        md = _build_report("2026-01-15", self._sample_events())
+        assert "## Summary" in md
+        assert "tool_call" in md
+        assert "llm_call" in md
+
+    def test_report_contains_tool_usage_section(self, tmp_path):
+        from hive.audit.reporter import _build_report
+        md = _build_report("2026-01-15", self._sample_events())
+        assert "## Tool Usage" in md
+        assert "docker_exec" in md
+        assert "bash" in md
+
+    def test_report_contains_llm_section(self, tmp_path):
+        from hive.audit.reporter import _build_report
+        md = _build_report("2026-01-15", self._sample_events())
+        assert "## LLM Calls" in md
+        assert "tokens_in" in md or "61,000" in md or "61000" in md
+
+    def test_report_contains_errors_section(self, tmp_path):
+        from hive.audit.reporter import _build_report
+        md = _build_report("2026-01-15", self._sample_events())
+        assert "## Errors" in md
+        assert "Permission denied" in md
+
+    def test_report_contains_anomalies_section(self, tmp_path):
+        from hive.audit.reporter import _build_report
+        md = _build_report("2026-01-15", self._sample_events())
+        assert "## LLM Anomalies" in md
+        assert "tokens_in>50000" in md
+
+    def test_empty_events_graceful(self, tmp_path):
+        from hive.audit.reporter import _build_report
+        md = _build_report("2026-01-15", [])
+        assert "No events recorded" in md
+
+    def test_generate_writes_file(self, tmp_path):
+        from datetime import date
+        from hive.audit.reporter import generate_daily_report
+        import json
+
+        log_dir = tmp_path / "audit"
+        log_dir.mkdir()
+        reports_dir = tmp_path / "reports"
+
+        report_date = date(2026, 1, 15)
+        log_file = log_dir / "2026-01-15.jsonl"
+        for ev in self._sample_events():
+            log_file.write_text(
+                log_file.read_text(encoding="utf-8") + json.dumps(ev) + "\n"
+                if log_file.exists() else json.dumps(ev) + "\n",
+                encoding="utf-8",
+            )
+
+        out_path = generate_daily_report(report_date, log_dir=log_dir, reports_dir=reports_dir)
+        assert (reports_dir / "2026-01-15.md").exists()
+        assert "2026-01-15" in Path(out_path).read_text(encoding="utf-8")

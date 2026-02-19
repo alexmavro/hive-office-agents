@@ -398,6 +398,29 @@ def gateway(
     
     console.print(f"[green]✓[/green] Heartbeat: every 30m")
     
+    async def _run_daily_report_loop(report_hour: int) -> None:
+        """Run the daily audit report generator at `report_hour` UTC each day.
+
+        Sleeps until the next occurrence of that UTC hour, then generates the
+        report for the previous day and loops. Uses asyncio — no LLM round-trip.
+        """
+        from datetime import datetime, timezone, timedelta
+        from hive.audit.reporter import generate_daily_report
+
+        while True:
+            now = datetime.now(timezone.utc)
+            # Next trigger: today or tomorrow at report_hour:00 UTC
+            target = now.replace(hour=report_hour, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target = target + timedelta(days=1)
+            await asyncio.sleep((target - now).total_seconds())
+
+            try:
+                report_path = generate_daily_report()
+                logger.info(f"Daily audit report written: {report_path}")
+            except Exception as exc:
+                logger.error(f"Daily audit report failed: {exc}")
+
     async def run():
         # Log gateway start + run retention check (non-blocking)
         if audit:
@@ -420,10 +443,17 @@ def gateway(
         try:
             await cron.start()
             await heartbeat.start()
-            await asyncio.gather(
-                agent.run(),
-                channels.start_all(),
-            )
+            tasks = [
+                asyncio.create_task(agent.run()),
+                asyncio.create_task(channels.start_all()),
+            ]
+            if audit:
+                tasks.append(
+                    asyncio.create_task(
+                        _run_daily_report_loop(config.audit.report_hour)
+                    )
+                )
+            await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
