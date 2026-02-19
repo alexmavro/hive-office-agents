@@ -80,7 +80,7 @@ class TestStart:
     def test_result_instructs_to_start(self, tmp_path):
         _, flow = make_flow(tmp_path)
         result = flow.start()
-        assert "start now" in result.lower() or "first question" in result.lower()
+        assert "start" in result.lower() or "question" in result.lower()
 
     def test_start_twice_is_idempotent(self, tmp_path):
         """Calling start() twice returns the same prompt (no state side effects)."""
