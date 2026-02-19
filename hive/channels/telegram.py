@@ -111,6 +111,8 @@ class TelegramChannel(BaseChannel):
     BOT_COMMANDS = [
         BotCommand("start", "Start the bot"),
         BotCommand("new", "Start a new conversation"),
+        BotCommand("onboard", "Set up your profile (5 min)"),
+        BotCommand("factory_reset", "Reset all memory ⚠️"),
         BotCommand("help", "Show available commands"),
     ]
     
@@ -144,15 +146,16 @@ class TelegramChannel(BaseChannel):
         self._app.add_error_handler(self._on_error)
         
         # Add command handlers
+        # /start has a special welcome reply; all other commands fall through to _on_message
         self._app.add_handler(CommandHandler("start", self._on_start))
-        self._app.add_handler(CommandHandler("new", self._forward_command))
-        self._app.add_handler(CommandHandler("help", self._forward_command))
-        
-        # Add message handler for text, photos, voice, documents
+
+        # Add message handler for text, photos, voice, documents.
+        # NOTE: ~filters.COMMAND is intentionally absent so that any /command the user sends
+        # (e.g. /new, /help, /onboard, /factory_reset) reaches _on_message and is routed by
+        # the AgentLoop. The /start CommandHandler above takes priority for /start messages.
         self._app.add_handler(
             MessageHandler(
-                (filters.TEXT | filters.PHOTO | filters.VOICE | filters.AUDIO | filters.Document.ALL) 
-                & ~filters.COMMAND, 
+                filters.TEXT | filters.PHOTO | filters.VOICE | filters.AUDIO | filters.Document.ALL,
                 self._on_message
             )
         )
@@ -241,16 +244,6 @@ class TelegramChannel(BaseChannel):
         sid = str(user.id)
         return f"{sid}|{user.username}" if user.username else sid
 
-    async def _forward_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Forward slash commands to the bus for unified handling in AgentLoop."""
-        if not update.message or not update.effective_user:
-            return
-        await self._handle_message(
-            sender_id=self._sender_id(update.effective_user),
-            chat_id=str(update.message.chat_id),
-            content=update.message.text,
-        )
-    
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle incoming messages (text, photos, voice, documents)."""
         if not update.message or not update.effective_user:

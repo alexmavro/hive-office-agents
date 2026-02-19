@@ -311,8 +311,8 @@ class AgentLoop:
             self.sessions.save(session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=response_text)
 
-        # Factory reset: /factory-reset shows warning; confirmation phrase executes it
-        if cmd == "/factory-reset":
+        # Factory reset: /factory-reset or /factory_reset (Telegram uses underscores in command menu)
+        if cmd in ("/factory-reset", "/factory_reset"):
             warning = await factory_reset(
                 workspace=self.workspace,
                 templates_dir=None,  # resolved below if available
