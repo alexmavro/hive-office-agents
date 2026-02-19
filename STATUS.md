@@ -1,7 +1,7 @@
 # STATUS.md
 
 ## Current step: S4 (Hive Manager) — NOT STARTED
-## Last git commit: `0693718` — S3.4: worker.Dockerfile, 257 tests
+## Last git commit: `b0c0202` — chore: nanobot → hive cleanup, remove dead code
 ## Git tag: `queen-alpha_S3_docker_executor` (at `0693718`)
 
 ## S2 Checklist
@@ -189,6 +189,48 @@ On `max_iterations` exceeded: worker makes one final LLM call to synthesise what
 **10. Consort promotion**
 A Temp does good work → Queen promotes it: give it a name, create `memory/workers/{name}/`. Promotion means it gets a persistent memory slice for its domain. Future runs of same-named worker inherit that context. Promotion is a Queen decision, not automatic.
 
+## Pre-S4 codebase cleanup (2026-02-19) — commit `b0c0202`
+
+Fresh-eyes audit of the entire codebase. Everything nanobot-specific, dead, or hindering was addressed.
+
+**Identity fixed:**
+- README.md: full rewrite (hive-focused, correct `hive` CLI + `~/.hive/` paths)
+- SECURITY.md: rewritten for actual VPS deployment reality
+- LICENSE: Lexi-Energy copyright added alongside nanobot upstream attribution
+- Bridge renamed to "Hive WhatsApp Bridge", auth path → `~/.hive/whatsapp-auth`
+- tmux skill: `NANOBOT_TMUX_SOCKET_DIR` → `HIVE_TMUX_SOCKET_DIR`, `nanobot.sock` → `hive.sock`
+- `workspace/HEARTBEAT.md`: "nanobot agent" → "Hive Queen"
+
+**Dead code removed:**
+- `hive/providers/openai_codex_provider.py` (282 lines) + all 6 call-sites + `oauth-cli-kit` dep
+- `provider login` CLI command (only served openai_codex — gone)
+- `workspace/USER.md` (deprecated template, replaced by `memory/identity/` in S2)
+- `COMMUNICATION.md` (empty placeholder, all rules live in SOUL.md)
+- `case/` directory (30MB nanobot demo GIFs, unrelated)
+
+**Archived outside repo** (`/root/archive/clawhub/`):
+- `hive/skills/clawhub/` — NO-GO per CLAUDE.md (external marketplace = security risk)
+
+**Kept intentionally (not dead):**
+- `hive/providers/transcription.py` — stub for future audio implementation (D2, deferred)
+- `hive/agent/subagent.py` + `spawn` tool — stub, will be superseded by S4 WorkerLoop
+- 8 unused channel implementations — kept for future S8+ use
+- `hive/agent/tools/mcp.py` — no tests yet but needed, keep until better reference
+
+**Verification after cleanup:**
+- 257/257 tests passing
+- Gateway restarted (stale since 14:51, restarted 19:34 on fresh code)
+- docker_exec live test: Queen called the tool (not faked) — container Python 3.12.12 ≠ host 3.12.3
+- Queen reported result accurately and completely
+
+## Open questions — RESOLVED (2026-02-19)
+
+**S4.1: WorkerLoop as subclass vs delegating wrapper?**
+→ **Subclass of AgentLoop.** `SubagentManager` is a non-functional stub and will be superseded entirely by S4. Build WorkerLoop clean as an AgentLoop subclass with restricted tools + callbacks. Don't extend the stub.
+
+**Worker progress pings: on by default or verbose-only?**
+→ **Still open — UX call for Alex.** Recommendation: verbose-only by default (cleaner Telegram experience; on-demand `workers` tool provides status). Confirm before S4.3.
+
 ## Next step: S4 — Hive Manager
 
 Build stages:
@@ -231,7 +273,7 @@ are structural advantages, not features.
 
 ## Open questions for next session
 
-- First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)? — deferred, not blocking
+- First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)? — deferred, not blocking S4
 - Hive-Teams spec: when does Alex want to detail this? — post-S7, not blocking S4
-- S4.1 detail: should WorkerLoop be a subclass of AgentLoop or a separate class that delegates? (discuss before building)
-- Worker progress pings: on by default or verbose-only? UX call for Alex.
+- **Worker progress pings: verbose-only (recommended) or on by default?** — UX call for Alex, needed before S4.3
+- ~~S4.1 detail: should WorkerLoop be subclass or delegator?~~ — **RESOLVED: subclass of AgentLoop**
