@@ -32,3 +32,6 @@ botpy.log
 
 # Build artifacts
 poetry.lock
+
+# Read-only reference material (no backup needed)
+docs-alex-vision-DO_NOT_EDIT_READ_ONLY/
