@@ -269,15 +269,10 @@ This file stores important information that should persist across sessions.
 def _make_provider(config: Config):
     """Create LiteLLMProvider from config. Exits if no API key found."""
     from hive.providers.litellm_provider import LiteLLMProvider
-    from hive.providers.openai_codex_provider import OpenAICodexProvider
 
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
-
-    # OpenAI Codex (OAuth): don't route via LiteLLM; use the dedicated implementation.
-    if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-        return OpenAICodexProvider(default_model=model)
 
     from hive.providers.registry import find_by_name
     spec = find_by_name(provider_name)
@@ -944,52 +939,6 @@ def status():
                 has_key = bool(p.api_key)
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
 
-
-# ============================================================================
-# OAuth Login
-# ============================================================================
-
-provider_app = typer.Typer(help="Manage providers")
-app.add_typer(provider_app, name="provider")
-
-
-@provider_app.command("login")
-def provider_login(
-    provider: str = typer.Argument(..., help="OAuth provider to authenticate with (e.g., 'openai-codex')"),
-):
-    """Authenticate with an OAuth provider."""
-    console.print(f"{__logo__} OAuth Login - {provider}\n")
-
-    if provider == "openai-codex":
-        try:
-            from oauth_cli_kit import get_token, login_oauth_interactive
-            token = None
-            try:
-                token = get_token()
-            except Exception:
-                token = None
-            if not (token and token.access):
-                console.print("[cyan]No valid token found. Starting interactive OAuth login...[/cyan]")
-                console.print("A browser window may open for you to authenticate.\n")
-                token = login_oauth_interactive(
-                    print_fn=lambda s: console.print(s),
-                    prompt_fn=lambda s: typer.prompt(s),
-                )
-            if not (token and token.access):
-                console.print("[red]✗ Authentication failed[/red]")
-                raise typer.Exit(1)
-            console.print("[green]✓ Successfully authenticated with OpenAI Codex![/green]")
-            console.print(f"[dim]Account ID: {token.account_id}[/dim]")
-        except ImportError:
-            console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
-            raise typer.Exit(1)
-        except Exception as e:
-            console.print(f"[red]Authentication error: {e}[/red]")
-            raise typer.Exit(1)
-    else:
-        console.print(f"[red]Unknown OAuth provider: {provider}[/red]")
-        console.print("[yellow]Supported providers: openai-codex[/yellow]")
-        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
