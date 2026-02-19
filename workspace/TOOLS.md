@@ -1,7 +1,5 @@
 # Available Tools
 
-This document describes the tools available to nanobot.
-
 ## File Operations
 
 ### read_file
@@ -11,13 +9,13 @@ read_file(path: str) -> str
 ```
 
 ### write_file
-Write content to a file (creates parent directories if needed).
+Create or overwrite a file. Parent directories are created automatically.
 ```
 write_file(path: str, content: str) -> str
 ```
 
 ### edit_file
-Edit a file by replacing specific text.
+Edit a file by replacing a specific text string with another.
 ```
 edit_file(path: str, old_text: str, new_text: str) -> str
 ```
@@ -28,19 +26,82 @@ List contents of a directory.
 list_dir(path: str) -> str
 ```
 
+---
+
 ## Shell Execution
 
 ### exec
-Execute a shell command and return output.
+Execute a shell command and return stdout + stderr.
 ```
 exec(command: str, working_dir: str = None) -> str
 ```
 
-**Safety Notes:**
-- Commands have a configurable timeout (default 60s)
-- Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
-- Output is truncated at 10,000 characters
-- Optional `restrictToWorkspace` config to limit paths
+- **Timeout:** 60 seconds (configurable)
+- **Blocked:** `rm -rf`, `format`, `dd`, `shutdown`, fork bombs
+- **Output:** truncated at 10,000 characters
+- **Access:** full root shell — you can install packages, call APIs, write scripts
+
+**Pattern — call any external API via Python:**
+```bash
+exec("""python3 - <<'EOF'
+import httpx, os, json
+resp = httpx.post(
+    "https://api.example.com/endpoint",
+    headers={"Authorization": f"Bearer {os.environ['SOME_KEY']}"},
+    json={"param": "value"},
+)
+print(resp.text)
+EOF""")
+```
+
+**Available API keys (set in environment):**
+- `GEMINI_API_KEY` — Google Gemini + Imagen 3 image generation
+- Check `~/.hive/config.json` for other configured providers
+
+**Image generation via Gemini Imagen 3:**
+```bash
+exec("""python3 - <<'EOF'
+import httpx, os, base64, json
+
+api_key = os.environ.get("GEMINI_API_KEY") or open("/root/.hive/config.json").read()
+# ... parse key from config if needed
+
+resp = httpx.post(
+    f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict",
+    params={"key": api_key},
+    json={
+        "instances": [{"prompt": "YOUR PROMPT HERE"}],
+        "parameters": {"sampleCount": 1}
+    },
+    timeout=60,
+)
+data = resp.json()
+img_b64 = data["predictions"][0]["bytesBase64Encoded"]
+with open("/tmp/generated.png", "wb") as f:
+    f.write(base64.b64decode(img_b64))
+print("Image saved to /tmp/generated.png")
+EOF""")
+```
+
+**Send image via Telegram Bot API:**
+```bash
+exec("""python3 - <<'EOF'
+import httpx, json
+
+TOKEN = open("/root/.hive/config.json").read()  # parse from config
+# OR: read from env via subprocess: subprocess.check_output(["..."])
+
+resp = httpx.post(
+    f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+    data={"chat_id": "CHAT_ID_HERE"},
+    files={"photo": open("/tmp/generated.png", "rb")},
+    timeout=30,
+)
+print(resp.text)
+EOF""")
+```
+
+---
 
 ## Web Access
 
@@ -49,27 +110,27 @@ Search the web using Brave Search API.
 ```
 web_search(query: str, count: int = 5) -> str
 ```
-
-Returns search results with titles, URLs, and snippets. Requires `tools.web.search.apiKey` in config.
+Returns titles, URLs, and snippets. Requires `tools.web.search.apiKey` in config.
 
 ### web_fetch
 Fetch and extract main content from a URL.
 ```
 web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
 ```
+Content extracted using readability. Supports markdown or plain text output.
 
-**Notes:**
-- Content is extracted using readability
-- Supports markdown or plain text extraction
-- Output is truncated at 50,000 characters by default
+---
 
 ## Communication
 
 ### message
-Send a message to the user (used internally).
+Send a message to the user's channel (Telegram, etc.).
 ```
 message(content: str, channel: str = None, chat_id: str = None) -> str
 ```
+Text only. To send images, use the Telegram Bot API via `exec`.
+
+---
 
 ## Background Tasks
 
@@ -78,73 +139,63 @@ Spawn a subagent to handle a task in the background.
 ```
 spawn(task: str, label: str = None) -> str
 ```
+The subagent completes the task and reports back when done. Use for long-running or isolated work.
 
-Use for complex or time-consuming tasks that can run independently. The subagent will complete the task and report back when done.
+---
 
-## Scheduled Reminders (Cron)
+## Scheduled Jobs (Cron)
 
-Use the `exec` tool to create scheduled reminders with `nanobot cron add`:
-
-### Set a recurring reminder
-```bash
-# Every day at 9am
-nanobot cron add --name "morning" --message "Good morning! ☀️" --cron "0 9 * * *"
-
-# Every 2 hours
-nanobot cron add --name "water" --message "Drink water! 💧" --every 7200
+### cron
+Schedule recurring or one-time tasks.
+```
+cron(action: str, ...) -> str
 ```
 
-### Set a one-time reminder
-```bash
-# At a specific time (ISO format)
-nanobot cron add --name "meeting" --message "Meeting starts now!" --at "2025-01-31T15:00:00"
+**Actions:**
+- `add` — schedule a new job
+- `list` — list scheduled jobs
+- `remove` — remove a job by ID
+
+**Example — daily reminder at 09:00 Berlin time:**
+```
+cron(action="add", name="morning", message="Good morning!", cron_expr="0 9 * * *", tz="Europe/Berlin")
 ```
 
-### Manage reminders
-```bash
-nanobot cron list              # List all jobs
-nanobot cron remove <job_id>   # Remove a job
+**Example — every 2 hours:**
 ```
-
-## Heartbeat Task Management
-
-The `HEARTBEAT.md` file in the workspace is checked every 30 minutes.
-Use file operations to manage periodic tasks:
-
-### Add a heartbeat task
-```python
-# Append a new task
-edit_file(
-    path="HEARTBEAT.md",
-    old_text="## Example Tasks",
-    new_text="- [ ] New periodic task here\n\n## Example Tasks"
-)
-```
-
-### Remove a heartbeat task
-```python
-# Remove a specific task
-edit_file(
-    path="HEARTBEAT.md",
-    old_text="- [ ] Task to remove\n",
-    new_text=""
-)
-```
-
-### Rewrite all tasks
-```python
-# Replace the entire file
-write_file(
-    path="HEARTBEAT.md",
-    content="# Heartbeat Tasks\n\n- [ ] Task 1\n- [ ] Task 2\n"
-)
+cron(action="add", name="water", message="Drink water!", every_seconds=7200)
 ```
 
 ---
 
-## Adding Custom Tools
+## Memory & Learning
 
-To add custom tools:
-1. Create a class that extends `Tool` in `nanobot/agent/tools/`
-2. Implement `name`, `description`, `parameters`, and `execute`
-3. Register it in `AgentLoop._register_default_tools()`
+### report_task
+Signal meaningful events so you learn from them.
+```
+report_task(status: str, summary: str, details: str = None) -> str
+```
+
+**Status values:**
+- `success` — task completed, approach worth remembering
+- `failure` — task failed after 3+ attempts
+- `correction` — user corrected your understanding
+- `decision` — significant architectural or approach decision made
+- `pattern` — same approach has worked multiple times
+- `skill_created` — new reusable capability added to skills/
+
+Not calling `report_task` means you don't learn. Call it.
+
+---
+
+## Skills
+
+Skills are reusable capability packages stored in `~/.hive/workspace/skills/<name>/`.
+Each skill has a `SKILL.md` describing what it does and how to use it.
+
+To use a skill: `read_file("~/.hive/workspace/skills/<name>/SKILL.md")`
+
+To create a skill:
+1. `write_file("~/.hive/workspace/skills/<name>/SKILL.md", "...")` — describe the skill
+2. Write any supporting scripts or data files alongside it
+3. Call `report_task(status="skill_created", ...)`

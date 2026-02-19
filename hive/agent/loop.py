@@ -294,9 +294,14 @@ class AgentLoop:
             asyncio.create_task(_consolidate_and_cleanup())
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="New session started. Memory consolidation in progress.")
+        if cmd == "/reset":
+            # Hard reset: delete session file entirely, no memory consolidation.
+            self.sessions.delete(session.key)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                  content="Session deleted. Fresh start — no history, no consolidation.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 hive commands:\n/new — Start a new conversation\n/onboard — Set up your profile (5 min)\n/help — Show available commands")
+                                  content="🐝 hive commands:\n/new — New conversation (saves memory)\n/reset — Hard reset (deletes session entirely)\n/onboard — Set up your profile\n/help — Show this")
 
         # Onboarding: /onboard triggers an LLM-driven intake interview.
         # The mission prompt is injected as the "current message" so the Queen

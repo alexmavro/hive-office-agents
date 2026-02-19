@@ -118,6 +118,18 @@ class SessionManager:
         """Remove a session from the in-memory cache."""
         self._cache.pop(key, None)
 
+    def delete(self, key: str) -> bool:
+        """Delete a session: remove its file and evict from cache.
+
+        Returns True if the file existed and was removed, False otherwise.
+        """
+        self._cache.pop(key, None)
+        path = self._get_session_path(key)
+        if path.exists():
+            path.unlink()
+            return True
+        return False
+
     def list_sessions(self) -> list[dict[str, Any]]:
         """List all session files with basic metadata."""
         sessions = []

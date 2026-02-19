@@ -214,6 +214,7 @@ def _create_workspace_templates(workspace: Path):
     templates = {
         "AGENTS.md": _read_workspace_template("AGENTS.md"),
         "SOUL.md": _read_workspace_template("SOUL.md"),
+        "TOOLS.md": _read_workspace_template("TOOLS.md"),
         "USER.md": """# User
 
 Information about the user goes here.
@@ -841,6 +842,67 @@ def cron_run(
         console.print(f"[green]✓[/green] Job executed")
     else:
         console.print(f"[red]Failed to run job {job_id}[/red]")
+
+
+# ============================================================================
+# Session Commands
+# ============================================================================
+
+session_app = typer.Typer(help="Manage conversation sessions")
+app.add_typer(session_app, name="session")
+
+
+@session_app.command("list")
+def session_list():
+    """List all stored conversation sessions."""
+    from hive.config.loader import load_config
+    from hive.session.manager import SessionManager
+
+    config = load_config()
+    manager = SessionManager(config.workspace_path)
+    sessions = manager.list_sessions()
+
+    if not sessions:
+        console.print("No sessions found.")
+        return
+
+    table = Table(title="Sessions")
+    table.add_column("Key", style="cyan")
+    table.add_column("Messages", style="yellow")
+    table.add_column("Created", style="green")
+    table.add_column("Path", style="dim")
+
+    for s in sessions:
+        table.add_row(
+            s["key"],
+            str(s["message_count"]),
+            s.get("created_at", "")[:16],
+            s["path"],
+        )
+
+    console.print(table)
+
+
+@session_app.command("reset")
+def session_reset(
+    key: str = typer.Argument(..., help="Session key (e.g. 'telegram_8357708534')"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+):
+    """Delete a session (hard reset — no memory consolidation)."""
+    from hive.config.loader import load_config
+    from hive.session.manager import SessionManager
+
+    config = load_config()
+    manager = SessionManager(config.workspace_path)
+
+    if not yes:
+        typer.confirm(f"Delete session '{key}'? This cannot be undone.", abort=True)
+
+    deleted = manager.delete(key)
+    if deleted:
+        console.print(f"[green]✓[/green] Session '{key}' deleted.")
+    else:
+        console.print(f"[yellow]Session '{key}' not found.[/yellow]")
 
 
 # ============================================================================

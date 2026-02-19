@@ -110,7 +110,8 @@ class TelegramChannel(BaseChannel):
     # Commands registered with Telegram's command menu
     BOT_COMMANDS = [
         BotCommand("start", "Start the bot"),
-        BotCommand("new", "Start a new conversation"),
+        BotCommand("new", "New conversation (saves memory)"),
+        BotCommand("reset", "Hard reset — delete session entirely"),
         BotCommand("onboard", "Set up your profile"),
         BotCommand("help", "Show available commands"),
     ]
