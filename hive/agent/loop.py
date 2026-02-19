@@ -355,11 +355,12 @@ class AgentLoop:
             self.sessions.save(fresh_session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=result)
 
-        # Emergency capacity trigger: DAG-only compaction when session is very large.
-        # This prevents context overflow but does NOT write to memory/ hierarchy —
-        # memory writes are signal-based only (via report_task tool).
-        _CAPACITY_LIMIT = 200
-        if session.message_count > _CAPACITY_LIMIT:
+        # Proactive compaction: keep context bounded and memory files current.
+        # Fire when session exceeds memory_window AND at least memory_window // 2
+        # new messages have arrived since the last compaction — prevents
+        # both context overflow and compacting on every single message after 50.
+        _new_since_last = session.message_count - session.last_consolidated
+        if session.message_count > self.memory_window and _new_since_last >= self.memory_window // 2:
             asyncio.create_task(self._consolidate_memory(session))
 
         # Profile intake: detect uploaded documents or bare URLs and inject a structured
