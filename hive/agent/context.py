@@ -109,7 +109,8 @@ Memory files:
 - `{workspace_path}/memory/lessons/` — failures and patterns
 
 ## Conversation Rules
-- Reply directly with text for normal conversation. Only use the `message` tool to send to a specific channel.
+- **Use tools whenever a task requires it.** exec, docker_exec, read_file, web_search — these are how you actually do things. Do not describe what you would do; do it.
+- For your reply to the user: output text directly. Do NOT use the `message` tool to respond in the current conversation — `message` is only for sending to a *different* channel.
 - Maintain conversational thread. Before asking "what do you mean?", check the last 3 messages for context.
 - Match the user's language. If they write in German, reply in German."""
     
