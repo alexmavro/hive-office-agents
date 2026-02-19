@@ -257,7 +257,7 @@ S7 (emission stream) <-- last, needs everything stable
 
 | Role | Model | Notes |
 |------|-------|-------|
-| Builder (Claude Code) | Claude Sonnet 4.6 via subscription | Architecture + implementation work |
+| Builder (Claude Code) | Claude Opus 4.6 via Claude Pro subscription | Architecture + implementation work |
 | Queen (current) | `gemini/gemini-3-pro-preview` | Thinking model. Upgraded 2026-02-19. `maxTokens: 65536` (thinking overhead). |
 | Workers | TBD — likely Gemini Flash or Qwen via OpenRouter | Cheaper model acceptable; workers do bounded tasks |
 | Queen (future) | Promote to stable Gemini 3 Pro when out of preview | Same API key, just drop `-preview` suffix |
