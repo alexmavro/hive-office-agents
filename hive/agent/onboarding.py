@@ -50,6 +50,38 @@ def get_onboarding_prompt(workspace: Path) -> str:
     )
 
 
+def get_document_intake_prompt(file_paths: list[str], workspace: Path, user_text: str = "") -> str:
+    """Return the document intake mission for the LLM.
+
+    Injected when the user uploads one or more non-image files. The Queen reads
+    them, determines what they are, and extracts useful information to memory.
+    """
+    memory_path = str((workspace / "memory").expanduser().resolve())
+    files_str = "\n".join(f"  {p}" for p in file_paths)
+    context_line = f'\nThe user also wrote: "{user_text}"\n' if user_text.strip() else ""
+
+    return (
+        f"The user has uploaded {'a file' if len(file_paths) == 1 else 'files'}:\n"
+        f"{files_str}\n"
+        f"{context_line}\n"
+        "Steps:\n"
+        "1. Read the file(s) using read_file.\n"
+        "   - If content looks garbled or binary (e.g. a PDF), try: exec with 'pdftotext <path> -'\n"
+        "   - If you still can't read it, tell the user what format works best.\n"
+        "2. Decide what it is:\n"
+        "   a) Profile/context document (CV, LinkedIn export, company bio, brand guide, about page):\n"
+        "      Extract and save structured summaries using write_file — interpreted facts, not verbatim:\n"
+        f"      {memory_path}/identity/user.md — who they are, their role, background, context\n"
+        f"      {memory_path}/identity/constraints.md — non-negotiables (if mentioned)\n"
+        f"      {memory_path}/identity/preferences.md — working style (if mentioned)\n"
+        f"      {memory_path}/systems/infrastructure.md — technical setup (if mentioned)\n"
+        "      Then tell the user what you've learned and saved — conversationally, not a report.\n"
+        "   b) Technical file (code, config, data, logs):\n"
+        "      Help with what they need. Ask if the intent isn't clear.\n"
+        "   c) Something else: use good judgement.\n"
+    )
+
+
 class OnboardingFlow:
     """Onboarding helper (LLM-driven).
 

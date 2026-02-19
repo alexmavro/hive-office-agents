@@ -289,13 +289,19 @@ class TelegramChannel(BaseChannel):
             try:
                 file = await self._app.bot.get_file(media_file.file_id)
                 ext = self._get_extension(media_type, getattr(media_file, 'mime_type', None))
-                
-                # Save to workspace/media/
+
+                # Save to ~/.hive/media/
                 from pathlib import Path
                 media_dir = Path.home() / ".hive" / "media"
                 media_dir.mkdir(parents=True, exist_ok=True)
-                
-                file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
+
+                # For documents: keep the original filename (prefixed with short ID to avoid collisions)
+                original_name = getattr(media_file, 'file_name', None)
+                if media_type == "file" and original_name:
+                    safe_name = Path(original_name).name  # strip any path components
+                    file_path = media_dir / f"{media_file.file_id[:8]}_{safe_name}"
+                else:
+                    file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
                 await file.download_to_drive(str(file_path))
                 
                 media_paths.append(str(file_path))
@@ -370,14 +376,29 @@ class TelegramChannel(BaseChannel):
         logger.error(f"Telegram error: {context.error}")
 
     def _get_extension(self, media_type: str, mime_type: str | None) -> str:
-        """Get file extension based on media type."""
+        """Get file extension based on MIME type or media type category."""
         if mime_type:
             ext_map = {
-                "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+                # Images
+                "image/jpeg": ".jpg", "image/png": ".png",
+                "image/gif": ".gif", "image/webp": ".webp",
+                # Audio
                 "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a",
+                # Documents
+                "application/pdf": ".pdf",
+                "application/msword": ".doc",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+                "application/vnd.ms-excel": ".xls",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+                "text/plain": ".txt",
+                "text/markdown": ".md",
+                "text/html": ".html",
+                "text/csv": ".csv",
+                "application/json": ".json",
+                "application/zip": ".zip",
             }
             if mime_type in ext_map:
                 return ext_map[mime_type]
-        
+
         type_map = {"image": ".jpg", "voice": ".ogg", "audio": ".mp3", "file": ""}
         return type_map.get(media_type, "")

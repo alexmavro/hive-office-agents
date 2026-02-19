@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from hive.agent.onboarding import OnboardingFlow, get_onboarding_prompt
+from hive.agent.onboarding import OnboardingFlow, get_onboarding_prompt, get_document_intake_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -126,3 +126,49 @@ class TestGetOnboardingPrompt:
     def test_prompt_mentions_active_project_marker(self, tmp_path):
         result = get_onboarding_prompt(tmp_path)
         assert ".active_project" in result
+
+
+# ---------------------------------------------------------------------------
+# get_document_intake_prompt()
+# ---------------------------------------------------------------------------
+
+class TestGetDocumentIntakePrompt:
+    def test_includes_file_paths(self, tmp_path):
+        paths = ["/root/.hive/media/abc_cv.pdf"]
+        result = get_document_intake_prompt(paths, tmp_path)
+        assert "/root/.hive/media/abc_cv.pdf" in result
+
+    def test_includes_multiple_file_paths(self, tmp_path):
+        paths = ["/root/.hive/media/abc_cv.pdf", "/root/.hive/media/def_brand.pdf"]
+        result = get_document_intake_prompt(paths, tmp_path)
+        assert all(p in result for p in paths)
+
+    def test_mentions_read_file(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
+        assert "read_file" in result
+
+    def test_mentions_write_file(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
+        assert "write_file" in result
+
+    def test_mentions_user_md_path(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.txt"], tmp_path)
+        assert "user.md" in result
+
+    def test_includes_user_text_when_provided(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path, user_text="Here's my CV")
+        assert "Here's my CV" in result
+
+    def test_no_user_text_section_when_empty(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path, user_text="")
+        assert 'also wrote: ""' not in result
+
+    def test_mentions_pdf_fallback(self, tmp_path):
+        result = get_document_intake_prompt(["/some/file.pdf"], tmp_path)
+        assert "pdftotext" in result
+
+    def test_singular_vs_plural_label(self, tmp_path):
+        single = get_document_intake_prompt(["/a.pdf"], tmp_path)
+        multi = get_document_intake_prompt(["/a.pdf", "/b.pdf"], tmp_path)
+        assert "a file" in single
+        assert "files" in multi

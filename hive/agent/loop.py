@@ -23,7 +23,7 @@ from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
-from hive.agent.onboarding import OnboardingFlow
+from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt
 from hive.agent.admin import factory_reset, CONFIRM_PHRASE
 from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
@@ -362,10 +362,26 @@ class AgentLoop:
         if session.message_count > _CAPACITY_LIMIT:
             asyncio.create_task(self._consolidate_memory(session))
 
+        # Document intake: when the user uploads a non-image file (PDF, DOCX, TXT, etc.),
+        # inject a processing mission so the Queen reads it and extracts info to memory.
+        # Images are excluded — they're sent to the LLM directly as vision input.
+        _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        uploaded_docs = [
+            p for p in (msg.media or [])
+            if Path(p).suffix.lower() not in _IMAGE_EXTS
+        ]
+        if uploaded_docs:
+            # Strip the auto-generated [file: ...] markers from user text to get clean context
+            import re as _re
+            user_text = _re.sub(r"\[[^\]]+:[^\]]+\]", "", msg.content).strip()
+            current_message = get_document_intake_prompt(uploaded_docs, self.workspace, user_text)
+        else:
+            current_message = msg.content
+
         self._set_tool_context(msg.channel, msg.chat_id)
         initial_messages = self.context.build_messages(
             history=session.get_history(max_messages=self.memory_window),
-            current_message=msg.content,
+            current_message=current_message,
             media=msg.media if msg.media else None,
             channel=msg.channel,
             chat_id=msg.chat_id,
