@@ -17,6 +17,7 @@ import asyncio
 import shutil
 import subprocess
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -118,7 +119,15 @@ class DockerSandbox:
         t = timeout if timeout is not None else self.default_timeout
         sandbox_dir = tempfile.mkdtemp(prefix="hive-sandbox-")
         try:
-            Path(sandbox_dir, "run.py").write_text(code, encoding="utf-8")
+            # 0o777 on dir + 0o644 on file:
+            # - tempfile.mkdtemp() defaults to 0o700 (owner-only, blocks container)
+            # - 0o777 lets the container's non-root worker user (uid 1000) both
+            #   read existing files AND write new files to /sandbox
+            import os
+            os.chmod(sandbox_dir, 0o777)
+            code_file = Path(sandbox_dir, "run.py")
+            code_file.write_text(code, encoding="utf-8")
+            os.chmod(code_file, 0o644)
             return await self._run_container(
                 sandbox_dir=sandbox_dir,
                 cmd=["python", "/sandbox/run.py"],
@@ -140,6 +149,8 @@ class DockerSandbox:
         t = timeout if timeout is not None else self.default_timeout
         sandbox_dir = tempfile.mkdtemp(prefix="hive-sandbox-")
         try:
+            import os
+            os.chmod(sandbox_dir, 0o777)
             return await self._run_container(
                 sandbox_dir=sandbox_dir,
                 cmd=["sh", "-c", command],
@@ -158,14 +169,20 @@ class DockerSandbox:
         Spin up an ephemeral container, run cmd, capture output, tear down.
 
         Container flags:
-          --rm                       auto-remove on exit
+          --rm                       auto-remove on normal exit
+          --name                     pre-assigned UUID so we can force-remove on timeout
           --memory / --cpus          resource limits
           --security-opt             no privilege escalation
           -v sandbox_dir:/sandbox    file exchange only — host is not exposed
+
+        On timeout: the docker-run CLIENT process is killed, but the container
+        would keep running in the Docker daemon. We force-remove it by name.
         """
+        container_name = f"hive-sandbox-{uuid.uuid4().hex[:12]}"
         docker_cmd = [
             "docker", "run",
             "--rm",
+            "--name", container_name,
             "--memory", self.memory,
             "--cpus", self.cpus,
             "--security-opt", "no-new-privileges",
@@ -186,9 +203,19 @@ class DockerSandbox:
                     timeout=float(timeout),
                 )
             except asyncio.TimeoutError:
+                # Kill the client process, then force-remove the container.
+                # Without the force-remove, the container keeps running in the daemon.
                 try:
                     process.kill()
                     await process.wait()
+                except Exception:
+                    pass
+                try:
+                    await asyncio.create_subprocess_exec(
+                        "docker", "rm", "-f", container_name,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
                 except Exception:
                     pass
                 return SandboxResult(

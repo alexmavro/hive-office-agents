@@ -102,6 +102,7 @@ async def test_run_python_builds_correct_command():
     assert call_args[0] == "docker"
     assert "run" in call_args
     assert "--rm" in call_args
+    assert "--name" in call_args
     assert "--memory" in call_args
     assert "256m" in call_args
     assert "--cpus" in call_args
