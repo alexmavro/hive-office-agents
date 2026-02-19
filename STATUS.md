@@ -1,7 +1,7 @@
 # STATUS.md
 
 ## Current step: S4 (Hive Manager) — NOT STARTED
-## Last git commit: `123b429` — SA.3: daily audit reporter + asyncio daily schedule
+## Last git commit: `802ed62` — SA fix: wire audit logger into hive agent CLI command
 ## Git tag: `queen-alpha_S3_docker_executor` (at `0693718`) — SA layer is a parallel track, no new tag
 
 ## S2 Checklist
@@ -248,7 +248,9 @@ Parallel build track — no dependency on S4. S4 workers will call `audit.log_wo
 - [x] SA.3: `hive/audit/reporter.py` — daily MD report generator (tool table, LLM stats, errors, anomalies) — commit `123b429`
 - [x] SA.3: `_run_daily_report_loop()` asyncio task in gateway (default 09:00 UTC daily) — commit `123b429`
 - [x] 289/289 tests passing
-- [x] SA GATE commit (this gate)
+- [x] SA GATE commit `4a3921a` (CLAUDE.md + STATUS.md updated)
+- [x] SA fix: `hive agent` CLI command now also creates AuditLogger (was missing `audit=` in AgentLoop constructor) — commit `802ed62`
+- [x] Live verified: gateway restart → `gateway_start` event logged → Queen ran docker_exec → `tool_call` with `code: <108 chars>` sanitized in JSONL — all correct
 
 ### What gets logged
 
