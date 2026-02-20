@@ -1,6 +1,6 @@
 # STATUS.md
 
-## Current step: S4 (Hive Manager) — NOT STARTED
+## Current step: SB (Security Boundaries) — NOT STARTED — PREREQUISITE for S4
 ## Last git commit: `802ed62` — SA fix: wire audit logger into hive agent CLI command
 ## Git tag: `queen-alpha_S3_docker_executor` (at `0693718`) — SA layer is a parallel track, no new tag
 
@@ -292,7 +292,92 @@ Parallel build track — no dependency on S4. S4 workers will call `audit.log_wo
 4. Check `pytest tests/test_audit_logger.py` — all 32 pass
 5. Manually call `generate_daily_report()` → check MD file at `~/.hive/logs/reports/YYYY-MM-DD.md`
 
-## Next step: S4 — Hive Manager
+## Next step: SB — Security Boundaries
+
+**Must complete before S4.** If the gate isn't in `ToolRegistry.execute()` before S4 ships,
+every worker gets an ungated root shell. S4 workers inherit the gate from ToolRegistry
+automatically — but only if it's there first.
+
+**Full spec:** `reference-repos/pydantic-governance.md` (Security Officer document)
+**Policy:** `SECURITY.md` (summary + checklist)
+
+### SB Checklist
+
+- [ ] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 pattern reject + Tier 1 approval request + `asyncio.Event` wait. Returns error string to LLM on rejection/timeout. ← **unblocks S4**
+- [ ] **SB.2**: Channel role config (`role: admin/user/notification` on each channel model). Approval dispatcher queries for `role: admin` channels. Approval responses only accepted from admin-role channels.
+- [ ] **SB.3**: Session resumption check — before agent loop starts, if pending tasks exist in memory and session is new, describe + ask "shall I continue?" before any tool is called.
+- [ ] **SB.4**: Skill first-run approval gate — skill script files (`.py`/`.sh` registered as skills) require Tier 1 approval on first execution. Add `os.path.exists("/sandbox")`-as-conditional-bypass to AST filter.
+- [ ] PY.1 `SecretStr` on all credential fields in `hive/config/schema.py` ← can run parallel, ~30 min
+- [ ] All SA tests still passing (305+) after gate is wired in
+
+Gate tag: `queen-alpha_SB_security_boundaries`
+
+### SB Design Decisions (2026-02-20)
+
+**1. Gate location: ToolRegistry, not persona**
+The gate must be in `ToolRegistry.execute()`. A persona-level constraint ("Queen must ask
+before exec") breaks the moment S4 spawns workers — workers get their own agent loop with no
+inherited constraint. ToolRegistry is the single chokepoint all agents share.
+
+**2. Admin-origin does not pre-approve execution**
+A task arriving from the admin channel gives Queen the task. It does not give her permission
+to run every action that task requires. The gate fires at execution time regardless of where
+the original instruction came from. This prevents Queen from chaining: "admin approved the
+cleanup task → therefore deleting the database is also approved."
+
+**3. Tier structure (environment over text)**
+The governing principle: the safety boundary is *which environment* the command runs in, not
+what the command text says. docker_exec = Docker container = always free (the container IS
+the gate). exec on host = always gated. See `SECURITY.md` for full Tier 0/1/2 lists.
+
+**4. Approval flow**
+- Tier 0: hard reject, no message
+- Tier 1: send request to all `role: admin` channels, wait on asyncio.Event, 5-min timeout → auto-reject
+- LLM receives error string on rejection: "Approval required for [action]. Request sent to admin channel."
+- User replies YES/NO in admin channel. Approval handler fires the event.
+
+**5. Channel roles**
+Config: `role: Literal["user", "admin", "notification"]` on each channel model.
+Admin channel = approvals + system alerts only (no normal conversation clutter).
+User channel = normal chat. Notification = outbound-only.
+Only admin-channel YES/NO unblocks a pending gate. A user-channel "yes" mid-conversation is ignored.
+
+**6. Pydantic DMZ for S4 (add at spawn layer)**
+When S4 ships workers, add WorkerOrder + WorkerReport Pydantic models as the validation
+boundary between Queen and workers. Worker output is forced into typed schema fields before
+re-entering Queen's context — prompt-injected content from scraped pages cannot become an
+instruction. See `reference-repos/pydantic-governance.md` → "S4 Prerequisite: Pydantic DMZ".
+
+### SB Approval Channels
+
+- **Primary**: Telegram admin channel (`role: admin` in config) — works from phone, anywhere
+- **Secondary (future)**: `hive-approve` CLI listener on VPS — same gate, stdin input, looks
+  like Claude Code approval prompts. Not required for SB.1 — add after Telegram flow works.
+
+### Evidence that drove SB
+
+From live audit log (2026-02-20) and session report:
+- 15 `exec` calls overnight, 10 in one session — all ungated, all as root
+- 2-char Telegram message triggered 9 tool calls (file writes, docker_exec, exec) via memory
+  resumption — confirmed in audit log timestamps
+- Queen wrote `research_health/research.py` (with Docker bypass fallback), then executed it
+  immediately, then scheduled it for weekly cron — no human review at any step
+- `constraints.md` written by Queen in the same session she violated it — text files are not
+  security boundaries
+
+---
+
+## SB → S4 Handoff
+
+After `queen-alpha_SB_security_boundaries` tag:
+- Workers spawned by S4 automatically inherit the Tier 0/1/2 gate from ToolRegistry
+- Workers have `exec ❌` (no host shell access at all) — they cannot even ask for it
+- Workers have `docker_exec ✅` (always Tier 2 — container is the gate)
+- Add Pydantic DMZ (WorkerOrder + WorkerReport) at the spawn call and completion callback
+
+---
+
+## Next step (after SB): S4 — Hive Manager
 
 Build stages:
 

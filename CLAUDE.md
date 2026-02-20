@@ -152,6 +152,7 @@ Alex tests live on Telegram. Her feedback and the gateway log are real-time QA �
 - Telegram bot: @hive_queen_alpha_bot (allowlisted to Alex only)
 - GitHub PAT: stored in git remote URL only (not in any file)
 - Audit command: `git log --all -p | grep -E '(AIzaSy|bot_token_prefix|github_pat_)' `
+- **SB (planned)**: `exec` and host-destructive actions will require explicit approval via admin channel. See `SECURITY.md` and `reference-repos/pydantic-governance.md` for full tiered permission model and implementation spec.
 
 ## Session Continuity Protocol
 
@@ -237,7 +238,9 @@ S1 (DAG memory) <-- everything depends on this
  |
 S3 (Docker executor)
  |
-S4 (hive manager) <-- depends on S3
+SB (Security Boundaries) <-- PREREQUISITE for S4. ToolRegistry gate + channel roles.
+ |
+S4 (hive manager) <-- depends on SB (workers inherit the gate from ToolRegistry)
  |
 S6 (safety rails) <-- depends on S1
  |
@@ -253,7 +256,8 @@ S7 (emission stream) <-- last, needs everything stable
 | **S2** | Memory architecture (hierarchy, retrieval, confidence, signals, onboarding, factory reset) | **COMPLETE** — 182 tests, tag `queen-alpha_S2_memory_arch` |
 | **S3** | Docker executor (sandboxed Python execution, AST filter) | **COMPLETE** — 257 tests, tag `queen-alpha_S3_docker_executor` |
 | **SA** | Audit layer (structured JSONL logging, retention, daily reports) | **COMPLETE** — parallel track, 289 tests, commits b3e57f6–123b429. See STATUS.md SA section. |
-| **S4** | Hive manager (worker spawning, registry, notification) | **NOT STARTED** — spec complete, ready to build. See STATUS.md S4 section. |
+| **SB** | Security Boundaries (ToolRegistry approval gate, channel roles, session resumption, skill first-run gate) | **NOT STARTED** — design complete, spec in `reference-repos/pydantic-governance.md`. **Required before S4.** |
+| **S4** | Hive manager (worker spawning, registry, notification) | **NOT STARTED** — spec complete. Starts only after SB.1 is live. See STATUS.md. |
 | **S5** | Skill forge (Queen creates her own tools) | Not started. Can parallel S3/S4. |
 | **S6** | Safety rails (circuit breaker, budget gate, depth limits) | Not started. Depends on S1. |
 | **S7** | Emission stream (WebSocket live observation) | Not started. Last step. |
@@ -336,6 +340,8 @@ These are different concerns. docker_exec sandboxes *code*. WorkerLoop sandboxes
 | Worker (Temp) | ❌ | ✅       | ❌    | ✅         | ✅              | ❌      | ❌      |
 
 `exec` (host shell, root) stays with Queen only. Workers cannot touch the host, cannot message the user directly, cannot spawn other workers.
+
+**SB note**: Queen's `exec ✅` means *available*, not *ungated*. After SB.1, every `exec` call (and other host-destructive actions) will require explicit approval via the admin channel before executing. `docker_exec ✅` is always free — the Docker container is the gate. See `SECURITY.md` for the full tiered permission model.
 
 ### Spawning rules
 
