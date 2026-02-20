@@ -232,6 +232,39 @@ class TestSanitizeArgs:
 # Injection signal logging
 # ---------------------------------------------------------------------------
 
+class TestWriteResilience:
+    async def test_write_failure_does_not_raise(self, tmp_path):
+        """Audit write failures must never propagate — fire and forget."""
+        logger = AuditLogger(log_dir=tmp_path)
+        with patch.object(logger, "_append_line", side_effect=OSError("disk full")):
+            # Should return silently, not raise
+            await logger.log_tool_call(
+                actor="queen", tool="exec", args_summary={}, ok=True, duration_ms=1.0
+            )
+
+    async def test_llm_error_written_to_log(self, tmp_path):
+        """Failed LLM calls should be logged with error field."""
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_llm_call(
+            model="gemini/gemini-3-pro-preview",
+            tokens_in=0, tokens_out=0, tool_calls_n=0,
+            duration_ms=1234.5,
+            error="Connection timeout",
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert ev["error"] == "Connection timeout"
+        assert ev["tokens_in"] == 0
+        assert ev["duration_ms"] == 1234.5
+
+    async def test_successful_llm_call_has_no_error_field(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_llm_call(
+            model="m", tokens_in=100, tokens_out=50, tool_calls_n=1, duration_ms=500.0
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert "error" not in ev
+
+
 class TestInjectionSignal:
     async def test_injection_signal_written_when_true(self, tmp_path):
         logger = AuditLogger(log_dir=tmp_path)

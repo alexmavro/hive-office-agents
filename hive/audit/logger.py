@@ -67,11 +67,19 @@ class AuditLogger:
         return result
 
     async def _write(self, event: dict[str, Any]) -> None:
-        """Append one JSON line to today's log file."""
-        event.setdefault("ts", datetime.now(timezone.utc).isoformat())
-        line = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
-        async with self._lock:
-            await asyncio.to_thread(self._append_line, line)
+        """Append one JSON line to today's log file.
+
+        Never raises — audit failures must not break the main system.
+        On write error, prints a warning to stderr and returns silently.
+        """
+        try:
+            event.setdefault("ts", datetime.now(timezone.utc).isoformat())
+            line = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+            async with self._lock:
+                await asyncio.to_thread(self._append_line, line)
+        except Exception as exc:
+            import sys
+            print(f"[audit] write failed ({type(exc).__name__}: {exc})", file=sys.stderr)
 
     def _append_line(self, line: str) -> None:
         self._log_dir.mkdir(parents=True, exist_ok=True)
@@ -130,8 +138,12 @@ class AuditLogger:
         duration_ms: float,
         tool_names: list[str] | None = None,
         session_id: str | None = None,
+        error: str | None = None,
     ) -> None:
-        """Log an LLM inference event with token counts and anomaly detection."""
+        """Log an LLM inference event with token counts and anomaly detection.
+
+        Also fires on API failure (error is set, tokens will be 0).
+        """
         anomalies: list[str] = []
         if tokens_in > _ANOMALY_TOKENS_IN:
             anomalies.append(f"tokens_in>{_ANOMALY_TOKENS_IN}")
@@ -152,6 +164,8 @@ class AuditLogger:
             event["session_id"] = session_id
         if tool_names:
             event["tool_names"] = tool_names
+        if error is not None:
+            event["error"] = str(error)[:500]
         if anomalies:
             event["anomalies"] = anomalies
         await self._write(event)

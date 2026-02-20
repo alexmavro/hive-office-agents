@@ -208,26 +208,36 @@ class AgentLoop:
             iteration += 1
 
             _t0_llm = time.monotonic()
-            response = await self.provider.chat(
-                messages=messages,
-                tools=self.tools.get_definitions(),
-                model=self.model,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
-            if self._audit:
-                _duration_ms = (time.monotonic() - _t0_llm) * 1000
-                _usage = response.usage or {}
-                _tool_names = [tc.name for tc in response.tool_calls] if response.tool_calls else None
-                await self._audit.log_llm_call(
+            _llm_error: str | None = None
+            _llm_usage: dict = {}
+            _llm_tool_calls: list = []
+            try:
+                response = await self.provider.chat(
+                    messages=messages,
+                    tools=self.tools.get_definitions(),
                     model=self.model,
-                    tokens_in=_usage.get("prompt_tokens", 0),
-                    tokens_out=_usage.get("completion_tokens", 0),
-                    tool_calls_n=len(response.tool_calls),
-                    duration_ms=_duration_ms,
-                    tool_names=_tool_names,
-                    session_id=self.tools._session_id,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
                 )
+                _llm_usage = response.usage or {}
+                _llm_tool_calls = response.tool_calls
+            except Exception as _exc:
+                _llm_error = str(_exc)[:200]
+                raise
+            finally:
+                if self._audit:
+                    _duration_ms = (time.monotonic() - _t0_llm) * 1000
+                    _tool_names = [tc.name for tc in _llm_tool_calls] if _llm_tool_calls else None
+                    await self._audit.log_llm_call(
+                        model=self.model,
+                        tokens_in=_llm_usage.get("prompt_tokens", 0),
+                        tokens_out=_llm_usage.get("completion_tokens", 0),
+                        tool_calls_n=len(_llm_tool_calls),
+                        duration_ms=_duration_ms,
+                        tool_names=_tool_names,
+                        session_id=self.tools._session_id,
+                        error=_llm_error,
+                    )
 
             if response.has_tool_calls:
                 tool_call_dicts = [
