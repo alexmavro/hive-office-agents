@@ -11,6 +11,7 @@ import pytest
 
 from hive.audit import AuditLogger
 from hive.audit.retention import check_size_gb, run_retention
+from hive.agent.tools.registry import _security_meta
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +74,33 @@ class TestLogToolCall:
         ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
         assert "error" not in ev
 
+    async def test_session_id_written_when_provided(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_tool_call(
+            actor="queen", tool="exec", args_summary={}, ok=True, duration_ms=1.0,
+            session_id="telegram:123456",
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert ev["session_id"] == "telegram:123456"
+
+    async def test_session_id_absent_when_not_provided(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_tool_call(
+            actor="queen", tool="exec", args_summary={}, ok=True, duration_ms=1.0,
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert "session_id" not in ev
+
+    async def test_security_dict_written_when_provided(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_tool_call(
+            actor="queen", tool="docker_exec", args_summary={}, ok=True, duration_ms=1.0,
+            security={"code_sha256": "abc123", "code_lines": 10, "exit_code": 0},
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert ev["security"]["code_sha256"] == "abc123"
+        assert ev["security"]["code_lines"] == 10
+
 
 # ---------------------------------------------------------------------------
 # LLM call logging + anomaly detection
@@ -96,6 +124,23 @@ class TestLogLlmCall:
         assert ev["tool_calls_n"] == 2
         assert ev["duration_ms"] == 1500.0
         assert "anomalies" not in ev
+
+    async def test_tool_names_written_when_provided(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_llm_call(
+            model="m", tokens_in=100, tokens_out=50, tool_calls_n=2,
+            duration_ms=500.0, tool_names=["docker_exec", "read_file"],
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert ev["tool_names"] == ["docker_exec", "read_file"]
+
+    async def test_tool_names_absent_when_empty(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_llm_call(
+            model="m", tokens_in=100, tokens_out=50, tool_calls_n=0, duration_ms=500.0,
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert "tool_names" not in ev
 
     async def test_anomaly_tokens_in(self, tmp_path):
         logger = AuditLogger(log_dir=tmp_path)
@@ -181,6 +226,67 @@ class TestSanitizeArgs:
         assert result["lang"] == "python"
         assert result["note"].startswith("<")
         assert result["n"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Injection signal logging
+# ---------------------------------------------------------------------------
+
+class TestInjectionSignal:
+    async def test_injection_signal_written_when_true(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_channel_event(
+            direction="in", channel="telegram", session_id="t:1",
+            content_length=50, injection_signal=True,
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert ev["injection_signal"] is True
+
+    async def test_injection_signal_absent_when_false(self, tmp_path):
+        logger = AuditLogger(log_dir=tmp_path)
+        await logger.log_channel_event(
+            direction="in", channel="telegram", session_id="t:1",
+            content_length=20,
+        )
+        ev = read_events(list(tmp_path.glob("*.jsonl"))[0])[0]
+        assert "injection_signal" not in ev
+
+
+# ---------------------------------------------------------------------------
+# Security metadata (_security_meta helper)
+# ---------------------------------------------------------------------------
+
+class TestSecurityMeta:
+    def test_docker_exec_captures_hash_and_first_line(self):
+        code = "import pandas as pd\nprint(pd.__version__)"
+        meta = _security_meta("docker_exec", {"code": code}, "(no output)")
+        assert len(meta["code_sha256"]) == 16
+        assert meta["code_first_line"] == "import pandas as pd"
+        assert meta["code_lines"] == 2
+
+    def test_exit_code_zero_absent_on_success(self):
+        meta = _security_meta("docker_exec", {"code": "print(1)"}, "(no output)")
+        assert meta.get("exit_code") is None  # success → omitted
+
+    def test_exit_code_captured_from_output(self):
+        result = "some output\nExit code: 1"
+        meta = _security_meta("exec", {}, result)
+        assert meta["exit_code"] == 1
+
+    def test_timed_out_flag(self):
+        meta = _security_meta("docker_exec", {"code": "x"}, "Error: Execution timed out")
+        assert meta["timed_out"] is True
+        assert meta["exit_code"] == -1
+
+    def test_stderr_tail_captured(self):
+        result = "STDERR:\nTraceback (most recent call last):\n  ModuleNotFoundError"
+        meta = _security_meta("exec", {}, result)
+        assert meta["had_stderr"] is True
+        assert "ModuleNotFoundError" in meta["stderr_tail"]
+
+    def test_non_exec_tool_returns_none(self):
+        meta = _security_meta("read_file", {"path": "/tmp/x"}, "file contents")
+        assert meta is None
 
 
 # ---------------------------------------------------------------------------

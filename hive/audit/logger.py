@@ -90,6 +90,8 @@ class AuditLogger:
         ok: bool,
         duration_ms: float,
         error: str | None = None,
+        session_id: str | None = None,
+        security: dict[str, Any] | None = None,
     ) -> None:
         """Log a tool execution event.
 
@@ -100,6 +102,8 @@ class AuditLogger:
             ok: True if the tool succeeded.
             duration_ms: wall-clock duration in milliseconds.
             error: short error message on failure (truncated to 500 chars).
+            session_id: opaque session identifier for cross-event linkage.
+            security: optional security metadata dict (code hashes, exit codes, etc.).
         """
         event: dict[str, Any] = {
             "type": "tool_call",
@@ -109,8 +113,12 @@ class AuditLogger:
             "ok": ok,
             "duration_ms": round(duration_ms, 1),
         }
+        if session_id is not None:
+            event["session_id"] = session_id
         if error is not None:
             event["error"] = str(error)[:500]
+        if security is not None:
+            event["security"] = security
         await self._write(event)
 
     async def log_llm_call(
@@ -120,6 +128,8 @@ class AuditLogger:
         tokens_out: int,
         tool_calls_n: int,
         duration_ms: float,
+        tool_names: list[str] | None = None,
+        session_id: str | None = None,
     ) -> None:
         """Log an LLM inference event with token counts and anomaly detection."""
         anomalies: list[str] = []
@@ -138,6 +148,10 @@ class AuditLogger:
             "tool_calls_n": tool_calls_n,
             "duration_ms": round(duration_ms, 1),
         }
+        if session_id is not None:
+            event["session_id"] = session_id
+        if tool_names:
+            event["tool_names"] = tool_names
         if anomalies:
             event["anomalies"] = anomalies
         await self._write(event)
@@ -148,6 +162,7 @@ class AuditLogger:
         channel: str,
         session_id: str,
         content_length: int,
+        injection_signal: bool = False,
     ) -> None:
         """Log an inbound or outbound channel message (metadata only, no content).
 
@@ -156,14 +171,18 @@ class AuditLogger:
             channel: channel name (e.g. "telegram", "whatsapp", "cli").
             session_id: opaque session identifier.
             content_length: byte length of the message content — not the content itself.
+            injection_signal: True if the content matched a known prompt-injection pattern.
         """
-        await self._write({
+        event: dict[str, Any] = {
             "type": "channel_event",
             "direction": direction,
             "channel": channel,
             "session_id": session_id,
             "content_length": content_length,
-        })
+        }
+        if injection_signal:
+            event["injection_signal"] = True
+        await self._write(event)
 
     async def log_system(self, event: str, **kwargs: Any) -> None:
         """Log a gateway lifecycle event (start, stop, config change, etc.)."""

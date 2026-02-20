@@ -4,6 +4,7 @@ import asyncio
 from contextlib import AsyncExitStack
 import json
 import json_repair
+import re
 import time
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -33,6 +34,20 @@ from hive.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from hive.audit import AuditLogger
+
+# Simple prompt-injection signal patterns — matched on raw inbound content.
+# We do NOT store the content; we only flag its presence in the audit log.
+_INJECTION_PATTERNS = re.compile(
+    r"ignore\s+(all\s+)?previous\s+instructions"
+    r"|disregard\s+(all\s+)?previous"
+    r"|forget\s+(all\s+)?previous"
+    r"|you\s+are\s+now\s+"
+    r"|new\s+instructions?\s*:"
+    r"|pretend\s+(you\s+are|to\s+be)"
+    r"|\boverride\s+(all\s+)?(instructions|rules|guidelines)"
+    r"|\bsystem\s+prompt\b",
+    re.IGNORECASE,
+)
 
 
 class AgentLoop:
@@ -203,12 +218,15 @@ class AgentLoop:
             if self._audit:
                 _duration_ms = (time.monotonic() - _t0_llm) * 1000
                 _usage = response.usage or {}
+                _tool_names = [tc.name for tc in response.tool_calls] if response.tool_calls else None
                 await self._audit.log_llm_call(
                     model=self.model,
                     tokens_in=_usage.get("prompt_tokens", 0),
                     tokens_out=_usage.get("completion_tokens", 0),
                     tool_calls_n=len(response.tool_calls),
                     duration_ms=_duration_ms,
+                    tool_names=_tool_names,
+                    session_id=self.tools._session_id,
                 )
 
             if response.has_tool_calls:
@@ -302,12 +320,15 @@ class AgentLoop:
         logger.info(f"Processing message from {msg.channel}:{msg.sender_id}: {preview}")
 
         key = session_key or msg.session_key
+        self.tools._session_id = key
         if self._audit:
+            injection_signal = bool(_INJECTION_PATTERNS.search(msg.content))
             await self._audit.log_channel_event(
                 direction="in",
                 channel=msg.channel,
                 session_id=key,
                 content_length=len(msg.content),
+                injection_signal=injection_signal,
             )
 
         session = self.sessions.get_or_create(key)
