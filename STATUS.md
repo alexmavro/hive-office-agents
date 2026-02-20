@@ -292,23 +292,21 @@ Parallel build track — no dependency on S4. S4 workers will call `audit.log_wo
 4. Check `pytest tests/test_audit_logger.py` — all 32 pass
 5. Manually call `generate_daily_report()` → check MD file at `~/.hive/logs/reports/YYYY-MM-DD.md`
 
-## Next step: SB — Security Boundaries
+## Current: SB — Security Boundaries (SB.1 + SB.2 done, SB.3 next)
 
-**Must complete before S4.** If the gate isn't in `ToolRegistry.execute()` before S4 ships,
-every worker gets an ungated root shell. S4 workers inherit the gate from ToolRegistry
-automatically — but only if it's there first.
+**Must complete before S4.** SB.1 + SB.2 are done. Workers spawned by S4 will inherit
+the gate from ToolRegistry automatically. Next: SB.3 (session resumption check).
 
 **Full spec:** `reference-repos/pydantic-governance.md` (Security Officer document)
 **Policy:** `SECURITY.md` (summary + checklist)
 
 ### SB Checklist
 
-- [ ] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 pattern reject + Tier 1 approval request + `asyncio.Event` wait. Returns error string to LLM on rejection/timeout. ← **unblocks S4**
-- [ ] **SB.2**: Channel role config (`role: admin/user/notification` on each channel model). Approval dispatcher queries for `role: admin` channels. Approval responses only accepted from admin-role channels.
+- [x] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 hard-reject + Tier 1 deferred-return (no blocking) + Tier 2 always-free. `session_approve` Tier-2 tool lets LLM unlock Tier 1 categories after explicit user consent. — commits `c98aff5` + `7fe2d7c`
+- [x] **SB.2**: Channel role config (`role: Literal["user","admin","notification"]` on all 9 channel models). `channel_role` injected into every `InboundMessage.metadata` via `BaseChannel._handle_message`. Admin-channel `APPROVE <category>` / `APPROVE ALL` commands intercepted in `AgentLoop._process_message` before the LLM, calling `registry.pre_approve()` directly — no LLM in the approval path. Caller cannot spoof role (config always wins). — 446 tests pass
 - [ ] **SB.3**: Session resumption check — before agent loop starts, if pending tasks exist in memory and session is new, describe + ask "shall I continue?" before any tool is called.
-- [ ] **SB.4**: Skill first-run approval gate — skill script files (`.py`/`.sh` registered as skills) require Tier 1 approval on first execution. Add `os.path.exists("/sandbox")`-as-conditional-bypass to AST filter.
+- [ ] **SB.4**: Skill first-run approval gate — skill script files (`.py`/`.sh` registered as skills) require Tier 1 approval on first execution.
 - [ ] PY.1 `SecretStr` on all credential fields in `hive/config/schema.py` ← can run parallel, ~30 min
-- [ ] All SA tests still passing (305+) after gate is wired in
 
 Gate tag: `queen-alpha_SB_security_boundaries`
 
@@ -330,17 +328,30 @@ The governing principle: the safety boundary is *which environment* the command 
 what the command text says. docker_exec = Docker container = always free (the container IS
 the gate). exec on host = always gated. See `SECURITY.md` for full Tier 0/1/2 lists.
 
-**4. Approval flow**
-- Tier 0: hard reject, no message
-- Tier 1: send request to all `role: admin` channels, wait on asyncio.Event, 5-min timeout → auto-reject
-- LLM receives error string on rejection: "Approval required for [action]. Request sent to admin channel."
-- User replies YES/NO in admin channel. Approval handler fires the event.
+**4. Approval flow (SB.1 — deferred return, no blocking)**
 
-**5. Channel roles**
-Config: `role: Literal["user", "admin", "notification"]` on each channel model.
-Admin channel = approvals + system alerts only (no normal conversation clutter).
-User channel = normal chat. Notification = outbound-only.
-Only admin-channel YES/NO unblocks a pending gate. A user-channel "yes" mid-conversation is ignored.
+- Tier 0: hard reject, LLM receives "absolutely forbidden" string — no approval path
+- Tier 1: gate returns a structured deferred string immediately. No asyncio.Event, no wait.
+  LLM tells user what it needs. User says "yes". LLM calls `session_approve(category, reason)`.
+  Gate passes for the rest of the session for that category.
+- Tier 2: executes immediately, no friction.
+- The `_pending_approvals` dict is pre-wired for SB.2 async admin-channel YES/NO (not active in SB.1).
+
+**4b. Admin-channel approval flow (SB.2)**
+
+- User sends `APPROVE exec` (or `APPROVE ALL`) to the admin-role channel from their phone.
+- `AgentLoop._process_message` detects `channel_role == "admin"` and matches the pattern.
+- `registry.pre_approve(category)` is called directly — no LLM in the approval path.
+- Confirmation sent back to the admin channel.
+- Caller-supplied `channel_role` in metadata is overwritten by the real config value — cannot be spoofed.
+
+**5. Channel roles (SB.2)**
+
+Config: `role: Literal["user", "admin", "notification"]` on each of the 9 channel models.
+Default: `"user"`. Set `role: "admin"` on your Telegram bot instance dedicated to approvals.
+Admin channel: `APPROVE <category>` commands bypass the LLM entirely.
+User channel: `APPROVE exec` message is not intercepted — goes to normal LLM loop.
+Notification: outbound-only (convention, not yet enforced by code).
 
 **6. Pydantic DMZ for S4 (add at spawn layer)**
 When S4 ships workers, add WorkerOrder + WorkerReport Pydantic models as the validation

@@ -24,6 +24,7 @@ from hive.agent.tools.spawn import SpawnTool
 from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.tools.docker_exec import DockerExecTool
+from hive.agent.tools.session_approve import SessionApproveTool
 from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt, get_link_intake_prompt
@@ -102,7 +103,7 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
-        self.tools = ToolRegistry(audit=audit)
+        self.tools = ToolRegistry(audit=audit, workspace=workspace)
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
@@ -156,6 +157,9 @@ class AgentLoop:
         # Signal tool — triggers memory consolidation on meaningful events
         self.tools.register(ReportTaskTool(consolidation_callback=self._handle_signal))
 
+        # SB.1: session pre-approval tool (Tier 2 — allows LLM to unlock Tier 1 after user consent)
+        self.tools.register(SessionApproveTool(registry=self.tools))
+
         # Docker sandbox — only if image is built
         if DockerExecTool.is_available():
             self.tools.register(DockerExecTool())
@@ -174,6 +178,52 @@ class AgentLoop:
         self._mcp_stack = AsyncExitStack()
         await self._mcp_stack.__aenter__()
         await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
+
+    # SB.2 valid categories (mirrors session_approve.py)
+    _APPROVAL_CATEGORIES = {"exec", "write", "git", "packages", "spawn"}
+
+    def _handle_admin_approval(self, content: str) -> str | None:
+        """Parse and execute admin-channel approval commands.
+
+        Recognises "APPROVE <category>" (case-insensitive) and calls
+        self.tools.pre_approve(category) directly — no LLM in the loop.
+        Also recognises "APPROVE ALL" to unlock every category at once.
+
+        Returns:
+            A confirmation string to send back to the admin channel, or
+            None if the message is not an approval command (pass to LLM).
+        """
+        stripped = content.strip()
+        # Must match: APPROVE <token> — anything else is not an approval command
+        upper = stripped.upper()
+        if not upper.startswith("APPROVE "):
+            return None
+
+        token = stripped[len("APPROVE "):].strip().lower()
+
+        if token == "all":
+            for cat in self._APPROVAL_CATEGORIES:
+                self.tools.pre_approve(cat)
+            logger.info("Admin channel: pre-approved ALL categories for this session")
+            return (
+                "Session approval granted: ALL categories (exec, write, git, packages, spawn) "
+                "are now unlocked for the remainder of this gateway session."
+            )
+
+        if token in self._APPROVAL_CATEGORIES:
+            self.tools.pre_approve(token)
+            logger.info(f"Admin channel: pre-approved category '{token}' for this session")
+            return (
+                f"Session approval granted: '{token}' category is now unlocked "
+                f"for the remainder of this gateway session."
+            )
+
+        # Unknown token — tell the admin but don't pass to LLM
+        valid = ", ".join(sorted(self._APPROVAL_CATEGORIES))
+        return (
+            f"Unknown approval category: '{token}'. "
+            f"Valid categories: {valid}, all."
+        )
 
     def _set_tool_context(self, channel: str, chat_id: str) -> None:
         """Update context for all tools that need routing info."""
@@ -342,7 +392,19 @@ class AgentLoop:
             )
 
         session = self.sessions.get_or_create(key)
-        
+
+        # SB.2: admin-channel approval commands bypass the LLM entirely.
+        # Only messages arriving through a channel with role="admin" are trusted here.
+        # Pattern: "APPROVE <category>" — grants session-level pre-approval for that category.
+        if msg.metadata.get("channel_role") == "admin":
+            approval_response = self._handle_admin_approval(msg.content)
+            if approval_response is not None:
+                return OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=approval_response,
+                )
+
         # Handle slash commands
         cmd = msg.content.strip().lower()
         if cmd == "/new":

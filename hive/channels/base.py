@@ -58,6 +58,11 @@ class BaseChannel(ABC):
         """
         pass
     
+    @property
+    def role(self) -> str:
+        """Channel trust role: 'user', 'admin', or 'notification'. Defaults to 'user'."""
+        return getattr(self.config, "role", "user")
+
     def is_allowed(self, sender_id: str) -> bool:
         """
         Check if a sender is allowed to use this bot.
@@ -116,7 +121,7 @@ class BaseChannel(ABC):
             chat_id=str(chat_id),
             content=content,
             media=media or [],
-            metadata=metadata or {}
+            metadata={**(metadata or {}), "channel_role": self.role},
         )
         
         await self.bus.publish_inbound(msg)
