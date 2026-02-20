@@ -1,11 +1,15 @@
 """Tool registry for dynamic tool management."""
 
+import asyncio
 import hashlib
 import re
 import time
+import uuid
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from hive.agent.tools.base import Tool
+from hive.agent.tools.gate import classify_tool, Tier, GateDecision
 
 if TYPE_CHECKING:
     from hive.audit import AuditLogger
@@ -54,49 +58,116 @@ def _security_meta(name: str, params: dict[str, Any], result: str) -> dict[str, 
 
 class ToolRegistry:
     """
-    Registry for agent tools.
+    Registry for agent tools with SB.1 tiered permission gate.
 
-    Allows dynamic registration and execution of tools.
+    Every tool call passes through the gate in execute() before reaching
+    the tool implementation. The gate is in code — the LLM cannot reason
+    around it.
+
+    Tiers:
+      Tier 0 — hard reject, no approval path
+      Tier 1 — deferred: requires session pre-approval (pre_approve()) or
+                SB.2 admin channel YES (receive_approval())
+      Tier 2 — always free, no approval needed
+
+    Session pre-approval (SB.1):
+      registry.pre_approve("exec")  →  all Tier 1 exec actions pass for this session
+      Granted by the SessionApproveTool after explicit user consent.
+
+    Async approval (SB.2, not yet active):
+      registry.receive_approval(approval_id, approved)  →  called by channel handler
+      when user sends YES/NO from an admin channel.
     """
 
-    def __init__(self, audit: "AuditLogger | None" = None):
+    def __init__(
+        self,
+        audit: "AuditLogger | None" = None,
+        workspace: Path | None = None,
+        approval_timeout: float = 300.0,
+    ) -> None:
         self._tools: dict[str, Tool] = {}
         self._audit = audit
         self._session_id: str | None = None
-    
+        self._workspace = workspace
+        self._approval_timeout = approval_timeout  # reserved for SB.2
+
+        # SB.1: session-level pre-approved categories
+        self._pre_approved: set[str] = set()
+
+        # SB.2: async per-action approval (pre-wired, not active in SB.1)
+        self._pending_approvals: dict[str, tuple[asyncio.Event, list[bool]]] = {}
+
+    # ------------------------------------------------------------------
+    # Tool registration
+    # ------------------------------------------------------------------
+
     def register(self, tool: Tool) -> None:
         """Register a tool."""
         self._tools[tool.name] = tool
-    
+
     def unregister(self, name: str) -> None:
         """Unregister a tool by name."""
         self._tools.pop(name, None)
-    
+
     def get(self, name: str) -> Tool | None:
         """Get a tool by name."""
         return self._tools.get(name)
-    
+
     def has(self, name: str) -> bool:
         """Check if a tool is registered."""
         return name in self._tools
-    
+
     def get_definitions(self) -> list[dict[str, Any]]:
         """Get all tool definitions in OpenAI format."""
         return [tool.to_schema() for tool in self._tools.values()]
-    
-    async def execute(self, name: str, params: dict[str, Any]) -> str:
+
+    # ------------------------------------------------------------------
+    # Approval API
+    # ------------------------------------------------------------------
+
+    def pre_approve(self, category: str) -> None:
+        """Grant session-level approval for a Tier 1 action category.
+
+        Called by SessionApproveTool after the user explicitly consents.
+        Valid categories: exec, write, git, packages, spawn.
         """
-        Execute a tool by name with given parameters.
+        self._pre_approved.add(category)
+
+    async def receive_approval(self, approval_id: str, approved: bool) -> bool:
+        """SB.2 hook: resolve a pending per-action approval request.
+
+        Called by the channel handler when the user sends YES or NO from an
+        admin channel. Not used in SB.1 (no pending approvals are created yet).
+
+        Returns:
+            True if the approval_id was found and resolved.
+            False if the approval_id is unknown or already expired.
+        """
+        if approval_id in self._pending_approvals:
+            event, result = self._pending_approvals[approval_id]
+            result.append(approved)
+            event.set()
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Tool execution (gate lives here)
+    # ------------------------------------------------------------------
+
+    async def execute(self, name: str, params: dict[str, Any]) -> str:
+        """Execute a tool by name with given parameters.
+
+        The SB.1 gate fires before every execution:
+          - Tier 0 → immediate hard reject (no log of attempted execution)
+          - Tier 1 → deferred unless category is pre-approved
+          - Tier 2 → proceed immediately
 
         Args:
-            name: Tool name.
+            name:   Tool name.
             params: Tool parameters.
 
         Returns:
             Tool execution result as string.
-
-        Raises:
-            KeyError: If tool not found.
         """
         tool = self._tools.get(name)
         if not tool:
@@ -108,26 +179,71 @@ class ToolRegistry:
                 )
             return f"Error: Tool '{name}' not found"
 
+        decision: GateDecision | None = None
         t0 = time.monotonic()
         error: str | None = None
         ok = True
         result = ""
+
         try:
-            errors = tool.validate_params(params)
-            if errors:
-                error = "Invalid parameters: " + "; ".join(errors)
+            # --- SB.1 Gate ---
+            decision = classify_tool(name, params, self._workspace)
+
+            if decision.tier == Tier.ZERO:
                 ok = False
-                return f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors)
+                error = f"Tier 0 blocked: {decision.reason}"
+                return (
+                    f"Error: This action is absolutely forbidden and has no approval path. "
+                    f"Reason: {decision.reason}"
+                )
+
+            if decision.tier == Tier.ONE:
+                if decision.category not in self._pre_approved:
+                    ok = False
+                    error = f"Tier 1 deferred: {decision.reason}"
+                    return (
+                        f"Action requires approval: {decision.reason}\n\n"
+                        f"To proceed:\n"
+                        f"1. Explain to the user what you need and why.\n"
+                        f"2. Ask them to confirm.\n"
+                        f"3. Once they say yes, call: "
+                        f"session_approve(category='{decision.category}', "
+                        f"reason='<what the user said>')\n"
+                        f"4. Then retry this action."
+                    )
+                # Category is pre-approved — fall through to execution
+
+            # Tier 2 or pre-approved Tier 1: validate params and execute
+            param_errors = tool.validate_params(params)
+            if param_errors:
+                ok = False
+                error = "Invalid parameters: " + "; ".join(param_errors)
+                return f"Error: Invalid parameters for tool '{name}': " + "; ".join(param_errors)
+
             result = await tool.execute(**params)
             return result
+
         except Exception as e:
             ok = False
             error = str(e)
             return f"Error executing {name}: {str(e)}"
+
         finally:
             if self._audit:
                 duration_ms = (time.monotonic() - t0) * 1000
-                security = _security_meta(name, params, result) if name in ("docker_exec", "exec") else None
+                security = (
+                    _security_meta(name, params, result)
+                    if name in ("docker_exec", "exec")
+                    else None
+                )
+                if decision is not None:
+                    gate_meta: dict[str, Any] = {
+                        "gate_tier": decision.tier.value,
+                        "gate_reason": decision.reason,
+                    }
+                    if decision.category:
+                        gate_meta["gate_category"] = decision.category
+                    security = {**(security or {}), **gate_meta}
                 await self._audit.log_tool_call(
                     actor="queen",
                     tool=name,
@@ -138,14 +254,18 @@ class ToolRegistry:
                     session_id=self._session_id,
                     security=security,
                 )
-    
+
+    # ------------------------------------------------------------------
+    # Convenience
+    # ------------------------------------------------------------------
+
     @property
     def tool_names(self) -> list[str]:
         """Get list of registered tool names."""
         return list(self._tools.keys())
-    
+
     def __len__(self) -> int:
         return len(self._tools)
-    
+
     def __contains__(self, name: str) -> bool:
         return name in self._tools

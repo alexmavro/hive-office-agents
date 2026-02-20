@@ -217,6 +217,18 @@ class ExecToolConfig(BaseModel):
     timeout: int = 60
 
 
+class ApprovalConfig(BaseModel):
+    """Approval gate configuration (SB.1 — Security Boundaries).
+
+    Controls the ToolRegistry tiered permission gate. The gate fires at
+    execution time for every tool call. Tier 0 is always hard-rejected.
+    Tier 1 requires session pre-approval or SB.2 admin-channel YES.
+    Tier 2 is always free.
+    """
+    enabled: bool = True
+    timeout_seconds: float = 300.0  # reserved for SB.2 async approval (5-min default)
+
+
 class MCPServerConfig(BaseModel):
     """MCP server connection configuration (stdio or HTTP)."""
     command: str = ""  # Stdio: command to run (e.g. "npx")
@@ -231,6 +243,7 @@ class ToolsConfig(BaseModel):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    approval: ApprovalConfig = Field(default_factory=ApprovalConfig)  # SB.1 gate config
 
 
 class AuditConfig(BaseModel):
