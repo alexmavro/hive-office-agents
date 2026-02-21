@@ -120,6 +120,12 @@ class AgentLoop:
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
+
+        # Known chats: persisted (channel → chat_id) mapping so Queen can reach
+        # the user proactively even after a gateway restart.  Updated on every
+        # inbound message; injected into the system prompt as notification targets.
+        self._known_chats: dict[str, str] = self._load_known_chats()
+
         self._register_default_tools()
     
     def _register_default_tools(self) -> None:
@@ -178,6 +184,36 @@ class AgentLoop:
         self._mcp_stack = AsyncExitStack()
         await self._mcp_stack.__aenter__()
         await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
+
+    # ------------------------------------------------------------------
+    # Known-chats persistence (proactive notification targets)
+    # ------------------------------------------------------------------
+
+    @property
+    def _known_chats_path(self) -> Path:
+        return self.workspace / ".known_chats.json"
+
+    def _load_known_chats(self) -> dict[str, str]:
+        """Load persisted (channel → chat_id) notification targets from disk."""
+        path = self._known_chats_path
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return {str(k): str(v) for k, v in data.items()}
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def _save_known_chat(self, channel: str, chat_id: str) -> None:
+        """Persist a (channel, chat_id) pair to disk. Silently ignores write errors."""
+        self._known_chats[channel] = chat_id
+        try:
+            self._known_chats_path.write_text(
+                json.dumps(self._known_chats, indent=2), encoding="utf-8"
+            )
+        except OSError as e:
+            logger.debug(f"Could not persist known_chats: {e}")
 
     # SB.2 valid categories (mirrors session_approve.py)
     _APPROVAL_CATEGORIES = {"exec", "write", "git", "packages", "spawn"}
@@ -393,6 +429,10 @@ class AgentLoop:
 
         session = self.sessions.get_or_create(key)
 
+        # Persist this channel's chat_id so Queen can reach it proactively
+        # after a gateway restart (stored in .known_chats.json in the workspace).
+        self._save_known_chat(msg.channel, msg.chat_id)
+
         # SB.2: admin-channel approval commands bypass the LLM entirely.
         # Only messages arriving through a channel with role="admin" are trusted here.
         # Pattern: "APPROVE <category>" — grants session-level pre-approval for that category.
@@ -539,6 +579,7 @@ class AgentLoop:
             media=msg.media if msg.media else None,
             channel=msg.channel,
             chat_id=msg.chat_id,
+            notification_targets=self._known_chats if self._known_chats else None,
         )
         final_content, tools_used = await self._run_agent_loop(initial_messages)
 

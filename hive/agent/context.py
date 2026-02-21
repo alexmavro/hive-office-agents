@@ -134,6 +134,7 @@ Memory files:
         media: list[str] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
+        notification_targets: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call.
@@ -145,6 +146,7 @@ Memory files:
             media: Optional list of local file paths for images/media.
             channel: Current channel (telegram, feishu, etc.).
             chat_id: Current chat/user ID.
+            notification_targets: Known (channel → chat_id) targets for proactive messages.
 
         Returns:
             List of messages including system prompt.
@@ -153,8 +155,21 @@ Memory files:
 
         # System prompt
         system_prompt = self.build_system_prompt(skill_names)
+        session_section = ""
         if channel and chat_id:
-            system_prompt += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
+            session_section += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
+        if notification_targets:
+            targets_lines = "\n".join(
+                f"- {ch}: chat_id `{cid}`" for ch, cid in sorted(notification_targets.items())
+            )
+            session_section += (
+                "\n\n## Notification Targets\n"
+                "Use the `message` tool with these targets to send proactive messages "
+                "(reports, alerts, worker completions) outside the current conversation:\n"
+                + targets_lines
+            )
+        if session_section:
+            system_prompt += session_section
         messages.append({"role": "system", "content": system_prompt})
 
         # History

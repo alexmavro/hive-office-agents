@@ -22,6 +22,7 @@ class TelegramConfig(BaseModel):
     token: str = ""  # Bot token from @BotFather
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs or usernames
     proxy: str | None = None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
+    notification_chat_id: str = ""  # Persistent target for proactive messages (user's Telegram chat ID)
 
 
 class FeishuConfig(BaseModel):
@@ -47,11 +48,20 @@ class DingTalkConfig(BaseModel):
 class DiscordConfig(BaseModel):
     """Discord channel configuration."""
     enabled: bool = False
-    role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
+    role: Literal["user", "admin", "notification"] = "user"  # SB.2: default role for all channels
     token: str = ""  # Bot token from Discord Developer Portal
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs
     gateway_url: str = "wss://gateway.discord.gg/?v=10&encoding=json"
     intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
+    notification_chat_id: str = ""  # Persistent target for proactive messages (a Discord channel ID)
+    channel_routes: dict[str, Literal["user", "admin", "notification"]] = Field(
+        default_factory=dict,
+        description=(
+            "Per Discord-channel role overrides. Key = Discord channel ID (string), "
+            "value = role. Overrides the top-level 'role' for that specific channel. "
+            "Notification channels are outbound-only — inbound messages are dropped."
+        ),
+    )
 
 class EmailConfig(BaseModel):
     """Email channel configuration (IMAP inbound + SMTP outbound)."""

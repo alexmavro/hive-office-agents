@@ -303,7 +303,7 @@ the gate from ToolRegistry automatically. Next: SB.3 (session resumption check).
 ### SB Checklist
 
 - [x] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 hard-reject + Tier 1 deferred-return (no blocking) + Tier 2 always-free. `session_approve` Tier-2 tool lets LLM unlock Tier 1 categories after explicit user consent. — commits `c98aff5` + `7fe2d7c`
-- [x] **SB.2**: Channel role config (`role: Literal["user","admin","notification"]` on all 9 channel models). `channel_role` injected into every `InboundMessage.metadata` via `BaseChannel._handle_message`. Admin-channel `APPROVE <category>` / `APPROVE ALL` commands intercepted in `AgentLoop._process_message` before the LLM, calling `registry.pre_approve()` directly — no LLM in the approval path. Caller cannot spoof role (config always wins). — 446 tests pass
+- [x] **SB.2**: Channel role config (`role: Literal["user","admin","notification"]` on all 9 channel models). `channel_role` injected into every `InboundMessage.metadata` via `BaseChannel._handle_message`. Admin-channel `APPROVE <category>` / `APPROVE ALL` commands intercepted in `AgentLoop._process_message` before the LLM, calling `registry.pre_approve()` directly — no LLM in the approval path. Caller cannot spoof role (config always wins). **Discord `channel_routes`**: per-text-channel role override — one bot, many channels, each with its own trust level; notification channels now drop inbound silently (enforced in code, not just convention). **Known-chats persistence**: every inbound message writes `(channel, chat_id)` to `workspace/.known_chats.json`; loaded on gateway restart; injected into system prompt as "Notification Targets" so Queen always knows where to reach the user. `notification_chat_id` config field on Telegram + Discord for manual bootstrap before first message. — 473 tests pass
 - [ ] **SB.3**: Session resumption check — before agent loop starts, if pending tasks exist in memory and session is new, describe + ask "shall I continue?" before any tool is called.
 - [ ] **SB.4**: Skill first-run approval gate — skill script files (`.py`/`.sh` registered as skills) require Tier 1 approval on first execution.
 - [ ] PY.1 `SecretStr` on all credential fields in `hive/config/schema.py` ← can run parallel, ~30 min
@@ -351,7 +351,37 @@ Config: `role: Literal["user", "admin", "notification"]` on each of the 9 channe
 Default: `"user"`. Set `role: "admin"` on your Telegram bot instance dedicated to approvals.
 Admin channel: `APPROVE <category>` commands bypass the LLM entirely.
 User channel: `APPROVE exec` message is not intercepted — goes to normal LLM loop.
-Notification: outbound-only (convention, not yet enforced by code).
+Notification: outbound-only — inbound messages dropped in code (enforced in Discord via
+`channel_routes`, enforced for any channel whose top-level `role` is `notification`).
+
+**5b. Discord per-channel routing (SB.2 extension)**
+
+`DiscordConfig.channel_routes: dict[str, Literal["user","admin","notification"]]`
+maps each Discord channel_id to a trust role. Overrides the top-level `role` field for
+that channel. Computed in `DiscordChannel._handle_message_create`:
+- `effective_role = channel_routes.get(channel_id, config.role)`
+- notification → drop inbound silently
+- admin/user → publish `InboundMessage` directly (bypasses `_handle_message` to preserve
+  per-channel role while keeping anti-spoofing guarantee — the handler code sets the role,
+  not user input)
+
+**5c. Known-chats persistence + notification targets (SB.2 extension)**
+
+Every inbound `_process_message` call writes `(msg.channel, msg.chat_id)` to
+`workspace/.known_chats.json`. Loaded on init. Passed to `build_messages()` as
+`notification_targets`. System prompt gains a "Notification Targets" section listing
+all known `(channel, chat_id)` pairs so Queen can proactively reach the user via the
+`message` tool after any gateway restart.
+
+**5d. Known-source security layer (planned — SB.3 candidate)**
+
+User insight (2026-02-21): known_chats serves as a natural allowlist. Any message from
+a `(channel, chat_id)` NOT in `_known_chats` is an unknown source. Future gate:
+unknown sources → queued for admin approval before Queen engages. External drops (email,
+webhook) → always go to draft/workflow inbox, never directly to the LLM.
+Neither the user nor their clients need anyone else talking directly to Queen — a dedicated
+worker handles any external-agent interface. This inverts the current `allow_from: []`
+(allow all) default to a known-first model.
 
 **6. Pydantic DMZ for S4 (add at spawn layer)**
 When S4 ships workers, add WorkerOrder + WorkerReport Pydantic models as the validation
