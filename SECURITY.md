@@ -309,9 +309,9 @@ S4    Hive Manager  ← after SB.1 (gate is live, can start)
 - [ ] Configure `role: admin` on at least one channel in `~/.hive/config.json`
 - [x] SB.3 session resumption check — live and tested
 - [x] SB.4 skill first-run gate — live and tested
-- [ ] PY.2 `SecretStr` for environment variables
+- [x] PY.2 `SecretStr` for environment variables
 - [x] PY.1 `SecretStr` on all credential fields
-- [ ] PY.2 SSRF validator on `web_fetch`
+- [x] PY.2 SSRF validator on `web_fetch`
 - [ ] Telegram bot token not committed to git
 - [ ] LLM provider API key not committed to git
 - [ ] `pip-audit` clean

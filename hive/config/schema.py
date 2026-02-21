@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings
 
 class WhatsAppConfig(BaseModel):
     """WhatsApp channel configuration."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     bridge_url: str = "ws://localhost:3001"
@@ -17,6 +18,7 @@ class WhatsAppConfig(BaseModel):
 
 class TelegramConfig(BaseModel):
     """Telegram channel configuration."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     token: SecretStr = SecretStr("")  # Bot token from @BotFather
@@ -27,6 +29,7 @@ class TelegramConfig(BaseModel):
 
 class FeishuConfig(BaseModel):
     """Feishu/Lark channel configuration using WebSocket long connection."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     app_id: str = ""  # App ID from Feishu Open Platform
@@ -38,6 +41,7 @@ class FeishuConfig(BaseModel):
 
 class DingTalkConfig(BaseModel):
     """DingTalk channel configuration using Stream mode."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     client_id: str = ""  # AppKey
@@ -47,6 +51,7 @@ class DingTalkConfig(BaseModel):
 
 class DiscordConfig(BaseModel):
     """Discord channel configuration."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: default role for all channels
     token: SecretStr = SecretStr("")  # Bot token from Discord Developer Portal
@@ -65,13 +70,14 @@ class DiscordConfig(BaseModel):
 
 class EmailConfig(BaseModel):
     """Email channel configuration (IMAP inbound + SMTP outbound)."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     consent_granted: bool = False  # Explicit owner permission to access mailbox data
 
     # IMAP (receive)
     imap_host: str = ""
-    imap_port: int = 993
+    imap_port: int = Field(993, ge=1, le=65535)
     imap_username: str = ""
     imap_password: SecretStr = SecretStr("")
     imap_mailbox: str = "INBOX"
@@ -79,7 +85,7 @@ class EmailConfig(BaseModel):
 
     # SMTP (send)
     smtp_host: str = ""
-    smtp_port: int = 587
+    smtp_port: int = Field(587, ge=1, le=65535)
     smtp_username: str = ""
     smtp_password: SecretStr = SecretStr("")
     smtp_use_tls: bool = True
@@ -88,9 +94,9 @@ class EmailConfig(BaseModel):
 
     # Behavior
     auto_reply_enabled: bool = True  # If false, inbound email is read but no automatic reply is sent
-    poll_interval_seconds: int = 30
+    poll_interval_seconds: int = Field(30, ge=5, le=3600)
     mark_seen: bool = True
-    max_body_chars: int = 12000
+    max_body_chars: int = Field(12000, ge=100, le=1000000)
     subject_prefix: str = "Re: "
     allow_from: list[str] = Field(default_factory=list)  # Allowed sender email addresses
 
@@ -107,6 +113,7 @@ class MochatGroupRule(BaseModel):
 
 class MochatConfig(BaseModel):
     """Mochat channel configuration."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     base_url: str = "https://mochat.io"
@@ -128,33 +135,36 @@ class MochatConfig(BaseModel):
     allow_from: list[str] = Field(default_factory=list)
     mention: MochatMentionConfig = Field(default_factory=MochatMentionConfig)
     groups: dict[str, MochatGroupRule] = Field(default_factory=dict)
-    reply_delay_mode: str = "non-mention"  # off | non-mention
+    reply_delay_mode: Literal["off", "non-mention"] = "non-mention"
     reply_delay_ms: int = 120000
 
 
 class SlackDMConfig(BaseModel):
     """Slack DM policy configuration."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = True
-    policy: str = "open"  # "open" or "allowlist"
+    policy: Literal["open", "allowlist"] = "open"
     allow_from: list[str] = Field(default_factory=list)  # Allowed Slack user IDs
 
 
 class SlackConfig(BaseModel):
     """Slack channel configuration."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
-    mode: str = "socket"  # "socket" supported
+    mode: Literal["socket"] = "socket"
     webhook_path: str = "/slack/events"
     bot_token: SecretStr = SecretStr("")  # xoxb-...
     app_token: SecretStr = SecretStr("")  # xapp-...
     user_token_read_only: bool = True
-    group_policy: str = "mention"  # "mention", "open", "allowlist"
+    group_policy: Literal["mention", "open", "allowlist"] = "mention"
     group_allow_from: list[str] = Field(default_factory=list)  # Allowed channel IDs if allowlist
     dm: SlackDMConfig = Field(default_factory=SlackDMConfig)
 
 
 class QQConfig(BaseModel):
     """QQ channel configuration using botpy SDK."""
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     app_id: str = ""  # 机器人 ID (AppID) from q.qq.com
@@ -177,12 +187,13 @@ class ChannelsConfig(BaseModel):
 
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
+    model_config = ConfigDict(extra='forbid')
     workspace: str = "~/.hive/workspace"
     model: str = "anthropic/claude-opus-4-5"
-    max_tokens: int = 8192
-    temperature: float = 0.7
-    max_tool_iterations: int = 20
-    memory_window: int = 50
+    max_tokens: int = Field(8192, ge=1, le=200000)
+    temperature: float = Field(0.7, ge=0.0, le=2.0)
+    max_tool_iterations: int = Field(20, ge=1, le=200)
+    memory_window: int = Field(50, ge=1, le=10000)
 
 
 class AgentsConfig(BaseModel):
@@ -217,8 +228,9 @@ class ProvidersConfig(BaseModel):
 
 class GatewayConfig(BaseModel):
     """Gateway/server configuration."""
+    model_config = ConfigDict(extra='forbid')
     host: str = "0.0.0.0"
-    port: int = 18790
+    port: int = Field(18790, ge=1, le=65535)
 
 
 class WebSearchConfig(BaseModel):
@@ -253,7 +265,7 @@ class MCPServerConfig(BaseModel):
     """MCP server connection configuration (stdio or HTTP)."""
     command: str = ""  # Stdio: command to run (e.g. "npx")
     args: list[str] = Field(default_factory=list)  # Stdio: command arguments
-    env: dict[str, str] = Field(default_factory=dict)  # Stdio: extra env vars
+    env: dict[str, SecretStr] = Field(default_factory=dict)  # Stdio: extra env vars
     url: str = ""  # HTTP: streamable HTTP endpoint URL
 
 
@@ -275,10 +287,11 @@ class AuditConfig(BaseModel):
     IMPORTANT: This logs system events only — not personal data.
     See STATUS.md (SA section) for future reworks required before public deployment.
     """
+    model_config = ConfigDict(extra='forbid')
     enabled: bool = True
-    retention_days: int = 30       # Days before active logs are moved to archive/
-    max_size_gb: float = 5.0       # Queen flags user when total size exceeds this
-    report_hour: int = 9           # UTC hour to generate daily MD report (SA.3)
+    retention_days: int = Field(30, ge=1, le=3650)       # Days before active logs are moved to archive/
+    max_size_gb: float = Field(5.0, ge=0.1, le=1000.0)       # Queen flags user when total size exceeds this
+    report_hour: int = Field(9, ge=0, le=23)           # UTC hour to generate daily MD report (SA.3)
 
 
 class Config(BaseSettings):

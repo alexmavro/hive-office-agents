@@ -53,8 +53,9 @@ async def connect_mcp_servers(
     for name, cfg in mcp_servers.items():
         try:
             if cfg.command:
+                env_dict = {k: v.get_secret_value() for k, v in cfg.env.items()} if cfg.env else None
                 params = StdioServerParameters(
-                    command=cfg.command, args=cfg.args, env=cfg.env or None
+                    command=cfg.command, args=cfg.args, env=env_dict
                 )
                 read, write = await stack.enter_async_context(stdio_client(params))
             elif cfg.url:
