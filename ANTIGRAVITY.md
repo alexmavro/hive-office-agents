@@ -31,7 +31,7 @@ As a security-aware project manager, you must follow this exact sequence for eve
     - Tick the completed items in `STATUS.md` and `SECURITY.md`.
     - Did you learn something the next agent needs to know? Append it to the `Memory Bank` below.
     - **CRITICAL:** Write a comprehensive historical report in the `Builder_Reports/` directory (e.g., `YYYY-MM-DD_Feature_Report.md`). This must include a walkthrough of changes, AI commentary on the thought process, and any problems encountered. This is our permanent history.
-4. **Push:** Commit with clear conventional commit messages and push to the active branch (e.g., `Secure`).
+4. **Commit & Propose Push:** Commit with clear conventional commit messages to the active branch (e.g., `Secure`). **CRITICAL: DO NOT `git push` without explicitly asking Alex for permission first.**
 
 ---
 
