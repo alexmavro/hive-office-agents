@@ -235,17 +235,20 @@ class GatewayConfig(BaseModel):
 
 class WebSearchConfig(BaseModel):
     """Web search tool configuration."""
+    model_config = ConfigDict(extra='forbid')
     api_key: SecretStr = SecretStr("")  # Brave Search API key
     max_results: int = 5
 
 
 class WebToolsConfig(BaseModel):
     """Web tools configuration."""
+    model_config = ConfigDict(extra='forbid')
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
 
 
 class ExecToolConfig(BaseModel):
     """Shell exec tool configuration."""
+    model_config = ConfigDict(extra='forbid')
     timeout: int = 60
 
 

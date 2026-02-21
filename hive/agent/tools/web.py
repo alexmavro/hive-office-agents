@@ -17,6 +17,7 @@ USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
 MAX_REDIRECTS = 5  # Limit redirects to prevent DoS attacks
 
 _BLOCKED_NETWORKS = [
+    ip_network("0.0.0.0/8"),
     ip_network("127.0.0.0/8"),
     ip_network("10.0.0.0/8"),
     ip_network("172.16.0.0/12"),
@@ -24,11 +25,21 @@ _BLOCKED_NETWORKS = [
     ip_network("169.254.0.0/16"),   # link-local + AWS/GCP metadata endpoint
     ip_network("::1/128"),
     ip_network("fc00::/7"),
+    ip_network("::/128"),           # IPv6 unspecified address (equivalent to 0.0.0.0)
 ]
 
 def _is_private_host(host: str) -> bool:
     try:
-        return any(ip_address(host) in net for net in _BLOCKED_NETWORKS)
+        # Strip brackets if IPv6
+        clean_host = host.strip("[]")
+        ip = ip_address(clean_host)
+        
+        # If it's an IPv4-mapped IPv6 address, evaluate the underlying IPv4
+        # e.g., ::ffff:127.0.0.1 -> 127.0.0.1
+        if ip.version == 6 and getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped
+            
+        return any(ip in net for net in _BLOCKED_NETWORKS)
     except (AddressValueError, ValueError):
         return False   # hostname — apply same check after request resolves
 
