@@ -18,7 +18,8 @@ Before starting or concluding any task, consult and update the following files b
 | `STATUS.md` | **The Living Roadmap**: High-level feature tracking and task checklists. | Immediately after successfully verifying and pushing a feature. Check off the box and update ETAs. |
 | `SECURITY.md` | **The Security Posture**: Current vulnerabilities, implemented boundaries (SB.x), and data layer tracking. | Whenever a security boundary is closed, a new attack vector is found, or sensitive data handling changes. |
 | `ANTIGRAVITY.md` | **The Agent Memory Bank**: Hard-won technical learnings, exact gotchas, and SOPs for future agents. | When you discover a quirk (e.g., `python -c` bypass) that the next agent will definitely trip over if they aren't warned. |
-| `Walkthroughs` | **Session Receipts**: Artifacts in `.gemini/antigravity/brain` detailing exactly what was done today. | At the clean end of a work session before handing back to Alex. |
+| `Builder_Reports/` | **The Project History & AI Commentary**: A persistent directory containing detailed markdown reports of process, thinking, problems, and walkthroughs for each major session. | At the clean end of a work session before handing back to Alex. |
+| `Walkthroughs` | **Ephemeral Session Receipts**: Artifacts in `.gemini/antigravity/brain` highlighting changes during the active session. | Only used during active development; the final polished history goes into `Builder_Reports`. |
 
 ## 3. The Implementation Loop (How We Work)
 
@@ -29,7 +30,7 @@ As a security-aware project manager, you must follow this exact sequence for eve
 3. **The Handover (Documentation Phase):**
     - Tick the completed items in `STATUS.md` and `SECURITY.md`.
     - Did you learn something the next agent needs to know? Append it to the `Memory Bank` below.
-    - Create a concise Walkthrough artifact summarizing the changes.
+    - **CRITICAL:** Write a comprehensive historical report in the `Builder_Reports/` directory (e.g., `YYYY-MM-DD_Feature_Report.md`). This must include a walkthrough of changes, AI commentary on the thought process, and any problems encountered. This is our permanent history.
 4. **Push:** Commit with clear conventional commit messages and push to the active branch (e.g., `Secure`).
 
 ---
