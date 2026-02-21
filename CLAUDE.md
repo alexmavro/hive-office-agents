@@ -152,7 +152,9 @@ Alex tests live on Telegram. Her feedback and the gateway log are real-time QA �
 - Telegram bot: @hive_queen_alpha_bot (allowlisted to Alex only)
 - GitHub PAT: stored in git remote URL only (not in any file)
 - Audit command: `git log --all -p | grep -E '(AIzaSy|bot_token_prefix|github_pat_)' `
-- **SB (planned)**: `exec` and host-destructive actions will require explicit approval via admin channel. See `SECURITY.md` and `reference-repos/pydantic-governance.md` for full tiered permission model and implementation spec.
+- **SB.1 (live)**: `ToolRegistry.execute()` gate — Tier 0 hard-reject (rm -rf, disk wipe, etc.), Tier 1 deferred return (requires `session_approve` or admin APPROVE), Tier 2 always-free. `exec` is now gated.
+- **SB.2 (live)**: Channel `role: Literal["user","admin","notification"]` on all 9 channel configs. Discord `channel_routes` for per-text-channel role overrides. Admin-channel `APPROVE <category>` bypasses LLM. Notification channels drop inbound in code. Known-chats persistence (`_known_chats.json`) + "Notification Targets" in system prompt.
+- **SB.3/SB.4 (planned)**: Session resumption check + skill first-run gate. See `SECURITY.md` and `reference-repos/pydantic-governance.md`.
 
 ## Session Continuity Protocol
 
@@ -256,7 +258,7 @@ S7 (emission stream) <-- last, needs everything stable
 | **S2** | Memory architecture (hierarchy, retrieval, confidence, signals, onboarding, factory reset) | **COMPLETE** — 182 tests, tag `queen-alpha_S2_memory_arch` |
 | **S3** | Docker executor (sandboxed Python execution, AST filter) | **COMPLETE** — 257 tests, tag `queen-alpha_S3_docker_executor` |
 | **SA** | Audit layer (structured JSONL logging, retention, daily reports) | **COMPLETE** — parallel track, 289 tests, commits b3e57f6–123b429. See STATUS.md SA section. |
-| **SB** | Security Boundaries (ToolRegistry approval gate, channel roles, session resumption, skill first-run gate) | **NOT STARTED** — design complete, spec in `reference-repos/pydantic-governance.md`. **Required before S4.** |
+| **SB** | Security Boundaries (ToolRegistry approval gate, channel roles, session resumption, skill first-run gate) | **IN PROGRESS** — SB.1 (tiered gate) + SB.2 (channel roles, Discord routing, known-chats) complete. SB.3 (session resumption) + SB.4 (skill gate) remain. 473 tests. See STATUS.md. |
 | **S4** | Hive manager (worker spawning, registry, notification) | **NOT STARTED** — spec complete. Starts only after SB.1 is live. See STATUS.md. |
 | **S5** | Skill forge (Queen creates her own tools) | Not started. Can parallel S3/S4. |
 | **S6** | Safety rails (circuit breaker, budget gate, depth limits) | Not started. Depends on S1. |
@@ -286,7 +288,7 @@ S7 (emission stream) <-- last, needs everything stable
 | Config | `~/.hive/config.json` | Initialized via `hive onboard` |
 | Workspace | `~/.hive/workspace/` | Created (AGENTS.md, SOUL.md, USER.md, memory/) |
 | WhatsApp bridge | `/root/queen-alpha/bridge/dist/` | Built, 0 vulnerabilities |
-| Test suite | 257/257 passed | All green (S3 added docker sandbox + exec tool tests) |
+| Test suite | 473/473 passed | All green (SB added gate + channel role + Discord routing + known-chats tests) |
 | GitHub CLI | `gh` authenticated as Lexi-Energy | Working |
 | Git identity | Lexi-Energy (noreply email) | Configured |
 
@@ -304,7 +306,7 @@ Channel -> InboundMessage -> Bus -> Agent Loop -> LLM -> Tool Exec -> OutboundMe
 ```
 
 ### Key Systems
-- **Agent Loop** (`hive/agent/loop.py`): ReAct pattern, 20 iter cap, capacity trigger at 200 msgs (DAG-only), signal-based memory writes via `report_task`. Accepts `audit=` kwarg for structured logging.
+- **Agent Loop** (`hive/agent/loop.py`): ReAct pattern, 20 iter cap, capacity trigger at 200 msgs (DAG-only), signal-based memory writes via `report_task`. Accepts `audit=` kwarg for structured logging. SB.1 gate in `ToolRegistry.execute()`. SB.2: admin-channel `APPROVE <category>` intercept before LLM. Known-chats persistence (`_known_chats.json`) — Queen always knows where to reach the user after restart. `notification_targets` passed to `build_messages` so Queen sees them in system prompt.
 - **Audit layer** (`hive/audit/`): `AuditLogger` — async-safe JSONL writer to `~/.hive/logs/audit/YYYY-MM-DD.jsonl`. Logs tool calls (args sanitized), LLM calls (tokens + anomaly detection), channel events (metadata only), system lifecycle. `retention.py` rotates >30d files to archive/. `reporter.py` generates daily MD reports. System-event logging only — not personal data.
 - **Memory hierarchy** (`hive/agent/memory.py` + `memory/`): `MemoryEntry` with confidence (HIGH/MEDIUM/LOW) + decay. Hierarchy: identity/, systems/, projects/, procedural/, lessons/, skills/
 - **Retrieval** (`hive/agent/retrieval.py`): `MemoryRetriever` — always loads identity/, on-demand loads matching workflows + failure paragraphs
@@ -341,7 +343,7 @@ These are different concerns. docker_exec sandboxes *code*. WorkerLoop sandboxes
 
 `exec` (host shell, root) stays with Queen only. Workers cannot touch the host, cannot message the user directly, cannot spawn other workers.
 
-**SB note**: Queen's `exec ✅` means *available*, not *ungated*. After SB.1, every `exec` call (and other host-destructive actions) will require explicit approval via the admin channel before executing. `docker_exec ✅` is always free — the Docker container is the gate. See `SECURITY.md` for the full tiered permission model.
+**SB note**: Queen's `exec ✅` means *available*, not *ungated*. **SB.1 is live** — every `exec` call is now gated (Tier 0 hard-reject, Tier 1 deferred return, Tier 2 free). Admin-channel `APPROVE <category>` commands (SB.2) grant session-level approval without LLM involvement. `docker_exec ✅` is always Tier 2 — the Docker container is the gate. See `SECURITY.md` for the full tiered permission model.
 
 ### Spawning rules
 
