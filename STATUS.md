@@ -122,6 +122,7 @@ Observed from live Telegram testing (2026-02-19). Partially fixed, partially def
 
 ## Post-S3 additions (committed, not in original gate)
 
+- **Systemd Gateway Service**: Created `hive-gateway.service` to prevent multiple gateway instances from fighting over Telegram polling and to auto-restart the Queen gracefully. Test suite verified (473 passing).
 - **Tool suppression bug fixed** (`context.py`): "Reply directly with text" rule was silently blocking ALL tool calls. Fixed to explicitly instruct tool use. Commit `e7ef059`.
 - **Self-knowledge updated**: `workspace/SOUL.md` + `workspace/AGENTS.md` rewritten with exec/docker_exec two-mode execution table, pip install patterns, restart command. Copied to `~/.hive/workspace/`. Commit `0acb854`.
 - **Model upgraded**: `gemini/gemini-2.5-flash` → `gemini/gemini-3-pro-preview` (thinking model, released Feb 2026). `maxTokens`: `8192` → `65536` (thinking models consume tokens before output; the cap was silently strangling complex tasks). Config only — `~/.hive/config.json`.
@@ -304,9 +305,9 @@ the gate from ToolRegistry automatically. Next: SB.3 (session resumption check).
 
 - [x] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 hard-reject + Tier 1 deferred-return (no blocking) + Tier 2 always-free. `session_approve` Tier-2 tool lets LLM unlock Tier 1 categories after explicit user consent. — commits `c98aff5` + `7fe2d7c`
 - [x] **SB.2**: Channel role config (`role: Literal["user","admin","notification"]` on all 9 channel models). `channel_role` injected into every `InboundMessage.metadata` via `BaseChannel._handle_message`. Admin-channel `APPROVE <category>` / `APPROVE ALL` commands intercepted in `AgentLoop._process_message` before the LLM, calling `registry.pre_approve()` directly — no LLM in the approval path. Caller cannot spoof role (config always wins). **Discord `channel_routes`**: per-text-channel role override — one bot, many channels, each with its own trust level; notification channels now drop inbound silently (enforced in code, not just convention). **Known-chats persistence**: every inbound message writes `(channel, chat_id)` to `workspace/.known_chats.json`; loaded on gateway restart; injected into system prompt as "Notification Targets" so Queen always knows where to reach the user. `notification_chat_id` config field on Telegram + Discord for manual bootstrap before first message. — 473 tests pass
-- [ ] **SB.3**: Session resumption check — before agent loop starts, if pending tasks exist in memory and session is new, describe + ask "shall I continue?" before any tool is called.
-- [ ] **SB.4**: Skill first-run approval gate — skill script files (`.py`/`.sh` registered as skills) require Tier 1 approval on first execution.
-- [ ] PY.1 `SecretStr` on all credential fields in `hive/config/schema.py` ← can run parallel, ~30 min
+- [x] **SB.3**: Session resumption check — dynamic tracking in `loop.py` to inject `"SYSTEM SECURITY OVERRIDE"` on the first message of a loaded session, forcing Queen to summarize and halt unapproved tools.
+- [x] **SB.4**: Skill first-run approval gate — script files running in workspace via host exec are intercepted in `gate.py`. Their SHA256 hashes are verified against `approved_scripts.json`. Tier 1 `script_approval` is enforced, after which the script runs as Tier 2.
+- [x] PY.1 `SecretStr` on all credential fields in `hive/config/schema.py` ← can run parallel, ~30 min
 
 Gate tag: `queen-alpha_SB_security_boundaries`
 

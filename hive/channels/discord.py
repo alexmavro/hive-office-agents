@@ -35,7 +35,7 @@ class DiscordChannel(BaseChannel):
 
     async def start(self) -> None:
         """Start the Discord gateway connection."""
-        if not self.config.token:
+        if not self.config.token.get_secret_value():
             logger.error("Discord bot token not configured")
             return
 
@@ -85,7 +85,7 @@ class DiscordChannel(BaseChannel):
             payload["message_reference"] = {"message_id": msg.reply_to}
             payload["allowed_mentions"] = {"replied_user": False}
 
-        headers = {"Authorization": f"Bot {self.config.token}"}
+        headers = {"Authorization": f"Bot {self.config.token.get_secret_value()}"}
 
         try:
             for attempt in range(3):
@@ -153,7 +153,7 @@ class DiscordChannel(BaseChannel):
         identify = {
             "op": 2,
             "d": {
-                "token": self.config.token,
+                "token": self.config.token.get_secret_value(),
                 "intents": self.config.intents,
                 "properties": {
                     "os": "hive",
@@ -255,7 +255,7 @@ class DiscordChannel(BaseChannel):
 
         async def typing_loop() -> None:
             url = f"{DISCORD_API_BASE}/channels/{channel_id}/typing"
-            headers = {"Authorization": f"Bot {self.config.token}"}
+            headers = {"Authorization": f"Bot {self.config.token.get_secret_value()}"}
             while self._running:
                 try:
                     await self._http.post(url, headers=headers)

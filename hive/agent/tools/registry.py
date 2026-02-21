@@ -129,9 +129,30 @@ class ToolRegistry:
         """Grant session-level approval for a Tier 1 action category.
 
         Called by SessionApproveTool after the user explicitly consents.
-        Valid categories: exec, write, git, packages, spawn.
+        Valid categories: exec, write, git, packages, spawn, script_approval:<hash>:<path>.
         """
         self._pre_approved.add(category)
+        
+        # SB.4: If this is a script approval, persist the hash permanently.
+        if category.startswith("script_approval:"):
+            import json
+            parts = category.split(":", 2)
+            if len(parts) >= 2 and self._workspace:
+                script_hash = parts[1]
+                system_dir = self._workspace / ".system"
+                system_dir.mkdir(parents=True, exist_ok=True)
+                approved_json_path = system_dir / "approved_scripts.json"
+                
+                approved_data = {"approved_hashes": []}
+                if approved_json_path.exists():
+                    try:
+                        approved_data = json.loads(approved_json_path.read_text())
+                    except Exception:
+                        pass
+                        
+                if script_hash not in approved_data.get("approved_hashes", []):
+                    approved_data.setdefault("approved_hashes", []).append(script_hash)
+                    approved_json_path.write_text(json.dumps(approved_data, indent=2))
 
     async def receive_approval(self, approval_id: str, approved: bool) -> bool:
         """SB.2 hook: resolve a pending per-action approval request.

@@ -349,8 +349,8 @@ def test_pip_show_is_tier2():
     assert _tier("pip show requests") == Tier.TWO
 
 
-def test_python_inline_is_tier2():
-    assert _tier("python -c 'print(1+1)'") == Tier.TWO
+def test_python_inline_is_tier1():
+    assert _tier("python -c 'print(1+1)'") == Tier.ONE
 
 
 def test_curl_is_tier2():

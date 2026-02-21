@@ -116,7 +116,6 @@ _TIER2_EXEC: list[str] = [
     r"\bnpm\s+(list|ls|audit)\b",
     r"\b(curl|wget)\b",     # HTTP fetches — content audited separately
     r"\bjq\b",
-    r"\bpython3?\s+-c\b",  # python -c inline snippet (not a file on disk)
 ]
 
 # Tier 1: dangerous-but-approvable patterns.
@@ -138,6 +137,7 @@ _TIER1_EXEC: list[tuple[str, str, str]] = [
     # Running script files on the host
     (r"\b(python3?|bash|sh|zsh|fish|node|nodejs)\s+\S+\.(py|sh|bash|zsh|js)\b", "running a script file", "exec"),
     (r"\./[^\s|;&]+\.(sh|bash|zsh|py|js)\b", "running a script file", "exec"),
+    (r"\bpython3?\s+-c\b", "inline python execution (use docker_exec for isolation)", "exec"),
 ]
 
 
@@ -182,6 +182,43 @@ def classify_exec(
 
     # 4. Workspace-constrained exec → Tier 2
     if workspace and working_dir and _workspace_constrained(command, lower, workspace, working_dir):
+        # SB.4: Skill First-Run Gate
+        patterns = [
+            r"\b(?:python3?|bash|sh|zsh|fish|node|nodejs)\s+(\S+\.(?:py|sh|bash|zsh|js))\b",
+            r"(\./[^\s|;&]+\.(?:sh|bash|zsh|py|js))\b"
+        ]
+        
+        for pat in patterns:
+            for match in re.finditer(pat, command):
+                script_pth = match.group(1)
+                try:
+                    cwd_path = Path(working_dir).expanduser().resolve()
+                    resolved_script = (cwd_path / script_pth).resolve()
+                    if resolved_script.is_file():
+                        import hashlib
+                        import json
+                        content = resolved_script.read_bytes()
+                        script_hash = hashlib.sha256(content).hexdigest()
+                        
+                        system_dir = workspace / ".system"
+                        approved_json_path = system_dir / "approved_scripts.json"
+                        approved = False
+                        if approved_json_path.exists():
+                            try:
+                                approved_data = json.loads(approved_json_path.read_text())
+                                if script_hash in approved_data.get("approved_hashes", []):
+                                    approved = True
+                            except Exception:
+                                pass
+                        if not approved:
+                            return GateDecision(
+                                Tier.ONE,
+                                f"First-run approval required for script: {script_pth} (hash: {script_hash[:8]}). Please review the script's contents.",
+                                f"script_approval:{script_hash}:{str(resolved_script)}"
+                            )
+                except Exception:
+                    continue
+                    
         return GateDecision(Tier.TWO, "workspace-constrained exec")
 
     # 5. Tier 2: read-only text allowlist

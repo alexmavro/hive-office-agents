@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -11,7 +11,7 @@ class WhatsAppConfig(BaseModel):
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     bridge_url: str = "ws://localhost:3001"
-    bridge_token: str = ""  # Shared token for bridge auth (optional, recommended)
+    bridge_token: SecretStr = SecretStr("")  # Shared token for bridge auth (optional, recommended)
     allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers
 
 
@@ -19,7 +19,7 @@ class TelegramConfig(BaseModel):
     """Telegram channel configuration."""
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
-    token: str = ""  # Bot token from @BotFather
+    token: SecretStr = SecretStr("")  # Bot token from @BotFather
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs or usernames
     proxy: str | None = None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
     notification_chat_id: str = ""  # Persistent target for proactive messages (user's Telegram chat ID)
@@ -30,9 +30,9 @@ class FeishuConfig(BaseModel):
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     app_id: str = ""  # App ID from Feishu Open Platform
-    app_secret: str = ""  # App Secret from Feishu Open Platform
-    encrypt_key: str = ""  # Encrypt Key for event subscription (optional)
-    verification_token: str = ""  # Verification Token for event subscription (optional)
+    app_secret: SecretStr = SecretStr("")  # App Secret from Feishu Open Platform
+    encrypt_key: SecretStr = SecretStr("")  # Encrypt Key for event subscription (optional)
+    verification_token: SecretStr = SecretStr("")  # Verification Token for event subscription (optional)
     allow_from: list[str] = Field(default_factory=list)  # Allowed user open_ids
 
 
@@ -41,7 +41,7 @@ class DingTalkConfig(BaseModel):
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     client_id: str = ""  # AppKey
-    client_secret: str = ""  # AppSecret
+    client_secret: SecretStr = SecretStr("")  # AppSecret
     allow_from: list[str] = Field(default_factory=list)  # Allowed staff_ids
 
 
@@ -49,7 +49,7 @@ class DiscordConfig(BaseModel):
     """Discord channel configuration."""
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: default role for all channels
-    token: str = ""  # Bot token from Discord Developer Portal
+    token: SecretStr = SecretStr("")  # Bot token from Discord Developer Portal
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs
     gateway_url: str = "wss://gateway.discord.gg/?v=10&encoding=json"
     intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
@@ -73,7 +73,7 @@ class EmailConfig(BaseModel):
     imap_host: str = ""
     imap_port: int = 993
     imap_username: str = ""
-    imap_password: str = ""
+    imap_password: SecretStr = SecretStr("")
     imap_mailbox: str = "INBOX"
     imap_use_ssl: bool = True
 
@@ -81,7 +81,7 @@ class EmailConfig(BaseModel):
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_username: str = ""
-    smtp_password: str = ""
+    smtp_password: SecretStr = SecretStr("")
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     from_address: str = ""
@@ -121,7 +121,7 @@ class MochatConfig(BaseModel):
     watch_limit: int = 100
     retry_delay_ms: int = 500
     max_retry_attempts: int = 0  # 0 means unlimited retries
-    claw_token: str = ""
+    claw_token: SecretStr = SecretStr("")
     agent_user_id: str = ""
     sessions: list[str] = Field(default_factory=list)
     panels: list[str] = Field(default_factory=list)
@@ -145,8 +145,8 @@ class SlackConfig(BaseModel):
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     mode: str = "socket"  # "socket" supported
     webhook_path: str = "/slack/events"
-    bot_token: str = ""  # xoxb-...
-    app_token: str = ""  # xapp-...
+    bot_token: SecretStr = SecretStr("")  # xoxb-...
+    app_token: SecretStr = SecretStr("")  # xapp-...
     user_token_read_only: bool = True
     group_policy: str = "mention"  # "mention", "open", "allowlist"
     group_allow_from: list[str] = Field(default_factory=list)  # Allowed channel IDs if allowlist
@@ -158,7 +158,7 @@ class QQConfig(BaseModel):
     enabled: bool = False
     role: Literal["user", "admin", "notification"] = "user"  # SB.2: channel trust level
     app_id: str = ""  # 机器人 ID (AppID) from q.qq.com
-    secret: str = ""  # 机器人密钥 (AppSecret) from q.qq.com
+    secret: SecretStr = SecretStr("")  # 机器人密钥 (AppSecret) from q.qq.com
     allow_from: list[str] = Field(default_factory=list)  # Allowed user openids (empty = public access)
 
 
@@ -192,7 +192,7 @@ class AgentsConfig(BaseModel):
 
 class ProviderConfig(BaseModel):
     """LLM provider configuration."""
-    api_key: str = ""
+    api_key: SecretStr = SecretStr("")
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
 
@@ -223,7 +223,7 @@ class GatewayConfig(BaseModel):
 
 class WebSearchConfig(BaseModel):
     """Web search tool configuration."""
-    api_key: str = ""  # Brave Search API key
+    api_key: SecretStr = SecretStr("")  # Brave Search API key
     max_results: int = 5
 
 
@@ -304,7 +304,7 @@ class Config(BaseSettings):
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and any(kw in model_lower for kw in spec.keywords):
-                if spec.is_oauth or p.api_key:
+                if spec.is_oauth or p.api_key.get_secret_value():
                     return p, spec.name
 
         # Fallback: gateways first, then others (follows registry order)
@@ -313,7 +313,7 @@ class Config(BaseSettings):
             if spec.is_oauth:
                 continue
             p = getattr(self.providers, spec.name, None)
-            if p and p.api_key:
+            if p and p.api_key.get_secret_value():
                 return p, spec.name
         return None, None
 
@@ -330,7 +330,10 @@ class Config(BaseSettings):
     def get_api_key(self, model: str | None = None) -> str | None:
         """Get API key for the given model. Falls back to first available key."""
         p = self.get_provider(model)
-        return p.api_key if p else None
+        if not p:
+            return None
+        secret = p.api_key.get_secret_value()
+        return secret if secret else None
     
     def get_api_base(self, model: str | None = None) -> str | None:
         """Get API base URL for the given model. Applies default URLs for known gateways."""

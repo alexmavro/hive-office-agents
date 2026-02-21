@@ -70,8 +70,14 @@ Hive-Queen  (LAW, root, crowned)
 - The plan gets amended whenever we learn something that changes the approach
 - The builder (Claude Code) is ALWAYS free to suggest different approaches
 - Daily recap and test sessions are the checkpoint for plan adjustments
-- Alex (she/her) tests via Telegram for experience quality; Claude Code tests via pytest for correctness
+- Alex (she/her) tests via Telegram for experience quality; AI Builders test via pytest for correctness
 - Two-layer testing protocol: see `docs/hive_office_test_protocol.md`
+
+### The Builder Persona (Antigravity)
+The development and architecture of this project are driven by **Antigravity** (an agentic coding assistant) working alongside Alex and Claude. 
+- All major decisions, architectural learnings, and security protocols are documented in `ANTIGRAVITY.md` in the project root. Future Antigravity instances MUST read this file.
+- **Antigravity** is the author of the `Builder_Reports` (formerly `CLAUDE_Reports`) which maintain the daily log of findings and implementation plans.
+- Documentation is the backbone. We rely on rigorous validation (`pytest tests/`) before declaring any task complete.
 
 ## Core vs Personal Data — Decision Framework
 

@@ -276,13 +276,13 @@ def _make_provider(config: Config):
 
     from hive.providers.registry import find_by_name
     spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
+    if not model.startswith("bedrock/") and not (p and p.api_key.get_secret_value()) and not (spec and spec.is_oauth):
         console.print("[red]Error: No API key configured.[/red]")
         console.print("Set one in ~/.hive/config.json under providers section")
         raise typer.Exit(1)
 
     return LiteLLMProvider(
-        api_key=p.api_key if p else None,
+        api_key=p.api_key.get_secret_value() if p else None,
         api_base=config.get_api_base(model),
         default_model=model,
         extra_headers=p.extra_headers if p else None,
@@ -344,7 +344,7 @@ def gateway(
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
-        brave_api_key=config.tools.web.search.api_key or None,
+        brave_api_key=config.tools.web.search.api_key.get_secret_value() or None,
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
@@ -513,7 +513,7 @@ def agent(
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
-        brave_api_key=config.tools.web.search.api_key or None,
+        brave_api_key=config.tools.web.search.api_key.get_secret_value() or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
@@ -637,7 +637,7 @@ def channels_status():
     
     # Telegram
     tg = config.channels.telegram
-    tg_config = f"token: {tg.token[:10]}..." if tg.token else "[dim]not configured[/dim]"
+    tg_config = f"token: {tg.token.get_secret_value()[:10]}..." if tg.token.get_secret_value() else "[dim]not configured[/dim]"
     table.add_row(
         "Telegram",
         "✓" if tg.enabled else "✗",
@@ -646,7 +646,7 @@ def channels_status():
 
     # Slack
     slack = config.channels.slack
-    slack_config = "socket" if slack.app_token and slack.bot_token else "[dim]not configured[/dim]"
+    slack_config = "socket" if slack.app_token.get_secret_value() and slack.bot_token.get_secret_value() else "[dim]not configured[/dim]"
     table.add_row(
         "Slack",
         "✓" if slack.enabled else "✗",
@@ -727,8 +727,8 @@ def channels_login():
     console.print("Scan the QR code to connect.\n")
     
     env = {**os.environ}
-    if config.channels.whatsapp.bridge_token:
-        env["BRIDGE_TOKEN"] = config.channels.whatsapp.bridge_token
+    if config.channels.whatsapp.bridge_token.get_secret_value():
+        env["BRIDGE_TOKEN"] = config.channels.whatsapp.bridge_token.get_secret_value()
     
     try:
         subprocess.run(["npm", "start"], cwd=bridge_dir, check=True, env=env)
@@ -1003,7 +1003,7 @@ def status():
                 else:
                     console.print(f"{spec.label}: [dim]not set[/dim]")
             else:
-                has_key = bool(p.api_key)
+                has_key = bool(p.api_key.get_secret_value())
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
 
 

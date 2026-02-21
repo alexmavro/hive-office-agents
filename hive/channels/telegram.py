@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import datetime, timezone
 from loguru import logger
 from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -131,7 +132,7 @@ class TelegramChannel(BaseChannel):
     
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
-        if not self.config.token:
+        if not self.config.token.get_secret_value():
             logger.error("Telegram bot token not configured")
             return
         
@@ -139,7 +140,7 @@ class TelegramChannel(BaseChannel):
         
         # Build the application with larger connection pool to avoid pool-timeout on long runs
         req = HTTPXRequest(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0)
-        builder = Application.builder().token(self.config.token).request(req).get_updates_request(req)
+        builder = Application.builder().token(self.config.token.get_secret_value()).request(req).get_updates_request(req)
         if self.config.proxy:
             builder = builder.proxy(self.config.proxy).get_updates_proxy(self.config.proxy)
         self._app = builder.build()
@@ -179,7 +180,7 @@ class TelegramChannel(BaseChannel):
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
             allowed_updates=["message"],
-            drop_pending_updates=True  # Ignore old messages on startup
+            drop_pending_updates=False  # Changed: Do NOT ignore old messages on startup
         )
         
         # Keep running until stopped
@@ -248,6 +249,23 @@ class TelegramChannel(BaseChannel):
         """Handle incoming messages (text, photos, voice, documents)."""
         if not update.message or not update.effective_user:
             return
+        
+        # --- OFFLINE MESSAGE QUARANTINE ---
+        # If the message is older than 60 seconds, it was likely sent while I was offline/restarting.
+        # We fetch it (drop_pending_updates=False) but we do NOT act on it to prevent "Zombie Actions".
+        if update.message.date:
+            message_age = (datetime.now(timezone.utc) - update.message.date).total_seconds()
+            if message_age > 60:
+                logger.warning(f"Skipping offline message from {update.effective_user.first_name} (Age: {message_age:.1f}s): {update.message.text}")
+                await update.message.reply_text(
+                    f"⚠️ <b>Offline Message Quarantine</b>\n\n"
+                    f"I received this message while I was offline/restarting ({int(message_age)}s ago).\n"
+                    f"I have logged it but will <b>NOT</b> execute it for safety.\n\n"
+                    f"<i>Content:</i> {update.message.text}",
+                    parse_mode="HTML"
+                )
+                return
+        # ----------------------------------
         
         message = update.message
         user = update.effective_user

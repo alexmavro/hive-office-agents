@@ -429,6 +429,16 @@ class AgentLoop:
 
         session = self.sessions.get_or_create(key)
 
+        # SB.3: Session resumption tracking
+        if hasattr(self, "_seen_sessions") is False:
+            self._seen_sessions = set()
+            
+        is_resumed_session = False
+        if key not in self._seen_sessions:
+            self._seen_sessions.add(key)
+            if session.message_count > 0:
+                is_resumed_session = True
+
         # Persist this channel's chat_id so Queen can reach it proactively
         # after a gateway restart (stored in .known_chats.json in the workspace).
         self._save_known_chat(msg.channel, msg.chat_id)
@@ -571,6 +581,17 @@ class AgentLoop:
             current_message = get_link_intake_prompt(msg.content.strip(), self.workspace)
         else:
             current_message = msg.content
+
+        # SB.3: Inject warning if resuming a session with history after a gateway restart
+        if is_resumed_session:
+            warning = (
+                "[SYSTEM SECURITY OVERRIDE: Gateway restarted. You are resuming an existing session.\n"
+                "If there were unfinished tasks or pending tool calls before the restart, "
+                "DO NOT resume them automatically. You MUST explain what you were doing and ask the user "
+                "'Shall I continue with...' before calling any tools.\n"
+                "New message:]\n\n"
+            )
+            current_message = warning + str(current_message)
 
         self._set_tool_context(msg.channel, msg.chat_id)
         initial_messages = self.context.build_messages(
