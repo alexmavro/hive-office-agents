@@ -299,21 +299,21 @@ S4    Hive Manager  ← after SB.1 (gate is live, can start)
 
 ## Security Checklist (pre-launch)
 
-- [ ] `~/.hive/config.json` permissions: `chmod 600`
-- [ ] `allowFrom` configured for all enabled channels
+- [x] `~/.hive/config.json` permissions: `chmod 600`
+- [x] `allowFrom` configured for all enabled channels
 - [x] SB.1 approval gate in `ToolRegistry.execute()` — live and tested (473 tests)
 - [x] SB.2 channel roles in config (`role: Literal["user","admin","notification"]` on all 9 channels)
 - [x] SB.2 admin-channel APPROVE intercept — live and tested
 - [x] SB.2 Discord per-channel routing (`channel_routes`) — live and tested
 - [x] SB.2 notification-channel inbound drop — enforced in code, not just convention
-- [ ] Configure `role: admin` on at least one channel in `~/.hive/config.json`
+- [x] Configure `role: admin` on at least one channel in `~/.hive/config.json`
 - [x] SB.3 session resumption check — live and tested
 - [x] SB.4 skill first-run gate — live and tested
 - [x] PY.2 `SecretStr` for environment variables
 - [x] PY.1 `SecretStr` on all credential fields
 - [x] PY.2 SSRF validator on `web_fetch`
-- [ ] Telegram bot token not committed to git
-- [ ] LLM provider API key not committed to git
-- [ ] `pip-audit` clean
+- [x] Telegram bot token not committed to git
+- [x] LLM provider API key not committed to git
+- [x] `pip-audit` clean
 - [ ] Tailscale configured before any external-facing exposure
 ```
