@@ -1,7 +1,7 @@
 # STATUS.md
 
-## Current step: S4 — Hive Manager (COMPLETE)
-## Last git commit: `1bd8734`
+## Current step: SB — Security Boundaries (SB.3 COMPLETE)
+## Last git commit: `343bdf4`
 ## Git tag: `queen-alpha_S4_hive_manager`
 
 ## S4 Checklist (Completed)
@@ -314,6 +314,12 @@ the gate from ToolRegistry automatically. Next: SB.3 (session resumption check).
 - [x] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 hard-reject + Tier 1 deferred-return (no blocking) + Tier 2 always-free. `session_approve` Tier-2 tool lets LLM unlock Tier 1 categories after explicit user consent. **Update 2026-02-22**: Approvals are now strictly plan/turn-specific and wipe entirely when the Queen finishes processing the current message.
 - [x] **SB.2**: Channel role config (`role: Literal["user","admin","notification"]` on all 9 channel models). `channel_role` injected into every `InboundMessage.metadata` via `BaseChannel._handle_message`. Admin-channel `APPROVE <category>` / `APPROVE ALL` commands intercepted in `AgentLoop._process_message` before the LLM, calling `registry.pre_approve()` directly — no LLM in the approval path. Caller cannot spoof role. **Discord `channel_routes`**: per-text-channel role override. **Known-chats persistence**: every inbound message writes `(channel, chat_id)` to `workspace/.known_chats.json`. **Update 2026-02-22 (Memory Isolation)**: These known-chats now route their active context explicitly to `workspace/memory/projects/ch_{channel}_{chat_id}/` to ensure separate project scoping without goldfish memory. System prompt reads all active channel scopes into context.
 - [x] **SB.3**: Session resumption check — dynamic tracking in `loop.py` to inject `"SYSTEM SECURITY OVERRIDE"` on the first message of a loaded session, forcing Queen to summarize and halt unapproved tools.
+- [x] **Memory & Metadata Refinement (2026-02-22)**:
+  - Fixed LiteLLM `fallbacks` propagation regression in `consolidation.py` and `loop.py`.
+  - Refined memory architecture: shifted from channel-isolation to **Dual Memory Architecture** (Global Identity + Project Workspaces).
+  - Implemented `/project <name>` admin-only command for dynamic context switching.
+  - Implemented automatic Discord channel name mapping to project directory names.
+  - Injected "Curious Onboarding" prompt for pristine project spaces.
 - [x] **SB.4**: Skill first-run approval gate — script files running in workspace via host exec are intercepted in `gate.py`. *(Note 2026-02-21: Logic flaw discovered where workspace constraint short-circuits the script check. Fix deferred until S4 Worker architecture solidifies Docker vs Host exec boundaries.)*
 - [x] PY.1 `SecretStr` on all credential fields in `hive/config/schema.py` ← can run parallel, ~30 min
 

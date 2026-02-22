@@ -156,7 +156,7 @@ Alex tests live on her channels. Her feedback and the gateway log are real-time 
 - GitHub PAT: stored in git remote URL only (not in any file)
 - Audit command: `git log --all -p | grep -E '(AIzaSy|bot_token_prefix|github_pat_)' `
 - **SB.1 (live)**: `ToolRegistry.execute()` gate — Tier 0 hard-reject (rm -rf, disk wipe, etc.), Tier 1 deferred return (requires `session_approve` or admin APPROVE), Tier 2 always-free. `exec` is now gated. Approvals only last for the current plan/turn.
-- **SB.2 (live)**: Channel `role: Literal["user","admin","notification"]` on all 9 channel configs. Discord `channel_routes` for per-text-channel role overrides. Admin-channel `APPROVE <category>` bypasses LLM. Notification channels drop inbound in code. Known-chats persistence (`_known_chats.json`) + "Notification Targets" in system prompt. Inherently routes isolated project memory per channel.
+- **SB.2 (live)**: Channel `role: Literal["user","admin","notification"]` on all 9 channel configs. Discord `channel_routes` for per-text-channel role overrides. Admin-channel `APPROVE <category>` bypasses LLM. Notification channels drop inbound in code. Known-chats persistence (`_known_chats.json`) + "Notification Targets" in system prompt. Inherently routes isolated project memory per channel; Discord channel names map to project directories elegantly. `/project <name>` (admin-only) allows dynamic context-swimming across any active project.
 - **SB.3/SB.4 (planned)**: Session resumption check + skill first-run gate. See `SECURITY.md` and `reference-repos/pydantic-governance.md`.
 
 ## Session Continuity Protocol

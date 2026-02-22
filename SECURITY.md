@@ -121,9 +121,17 @@ via message content or metadata — the config wins. Verified in tests.
 
 **Discord per-channel routing:** `DiscordConfig.channel_routes` maps Discord channel_id → role.
 Overrides the top-level `role` field for that channel. `_handle_message_create` computes
-`effective_role = channel_routes.get(channel_id, config.role)` and publishes `InboundMessage`
-directly (bypasses `_handle_message`) to preserve per-channel role while keeping anti-spoofing.
+- `effective_role = channel_routes.get(channel_id, config.role)`
+- notification → drop inbound silently
+- admin/user → publish `InboundMessage` directly (bypasses `_handle_message` to preserve
+  per-channel role while keeping anti-spoofing guarantee — the handler code sets the role,
+  not user input)
 
+**Project Memory Isolation:**
+Every session is automatically mapped to a specific project directory in `memory/projects/`.
+- **Discord:** Dynamically fetches and uses the actual channel name (e.g. `discord_feature_rework`) to organize project data.
+- **Admin Switch:** Admin users can use `/project` to switch their own active context dynamically across any project workspace.
+- **Quarantine:** This provides a physical file-system boundary between different workspaces, preventing "Goldfish memory" context bleed.
 **Role ≠ routing restriction:** `role` classifies trust level, not message flow. Queen can
 `message(channel="discord", chat_id="any_channel_id")` regardless of `channel_routes`.
 The routes only affect inbound trust classification and notification-channel dropping.
@@ -161,6 +169,7 @@ as an actual security gate:
 | Email bodies (future) | Data | No — tagged `[DATA]` |
 | File content Queen reads | Data | No — tagged `[DATA]` |
 | Worker output (S4) | Data | No — validated through Pydantic DMZ |
+| /project <name> | Control | No — Restricted to Admin role only |
 
 External content informs Queen's reasoning. It cannot direct her actions. The injection scanner
 (SA-sec) flags control-plane patterns in data-plane content — but the flag must trigger a gate
