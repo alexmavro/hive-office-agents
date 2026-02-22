@@ -452,3 +452,46 @@ def test_agent_loop_registers_session_approve_tool():
     tool = loop.tools.get("session_approve")
     assert tool is not None
     assert isinstance(tool, SessionApproveTool)
+
+
+async def test_agent_loop_propagates_channel_role_to_tool_registry():
+    """AgentLoop sets self.tools._channel_role from InboundMessage metadata."""
+    from hive.agent.loop import AgentLoop
+    from hive.agent.tools.registry import ToolRegistry
+
+    with (
+        patch("hive.agent.loop.ContextBuilder"),
+        patch("hive.agent.loop.SessionManager"),
+        patch("hive.agent.loop.initialize_memory_hierarchy"),
+        patch.object(AgentLoop, "_register_default_tools"),
+    ):
+        bus = MagicMock(spec=MessageBus)
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        # Dummy provider to prevent errors during message loop
+        provider.chat = AsyncMock(return_value=MagicMock(content="Hello", tool_calls=[], usage={}))
+
+        loop = AgentLoop(bus=bus, provider=provider, workspace=Path("/tmp/ws"))
+        loop.tools = ToolRegistry()
+        
+        # Stub session management to not interfere
+        mock_session = MagicMock()
+        mock_session.metadata = {}
+        mock_session.message_count = 0
+        mock_session.last_consolidated = 0
+        mock_session.get_history.return_value = []
+        loop.sessions = MagicMock()
+        loop.sessions.get_or_create.return_value = mock_session
+        
+        loop.context = MagicMock()
+        loop.context.build_messages.return_value = [{"role": "user", "content": "hello"}]
+
+        # 1. Admin role message
+        msg_admin = _make_inbound("hello", channel_role="admin")
+        await loop._process_message(msg_admin)
+        assert loop.tools._channel_role == "admin"
+
+        # 2. User role message
+        msg_user = _make_inbound("ping", channel_role="user")
+        await loop._process_message(msg_user)
+        assert loop.tools._channel_role == "user"

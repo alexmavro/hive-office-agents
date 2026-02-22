@@ -423,6 +423,7 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         self.tools._session_id = key
+        self.tools._channel_role = msg.metadata.get("channel_role", "user")
         if self._audit:
             injection_signal = bool(_INJECTION_PATTERNS.search(msg.content))
             await self._audit.log_channel_event(

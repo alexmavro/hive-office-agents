@@ -30,8 +30,9 @@ Before starting or concluding any task, consult and update the following files b
 As a security-aware project manager, you must follow this exact sequence for every objective:
 
 1. **Alignment & Planning:** Read `CLAUDE.md` and `STATUS.md` first. Propose a plan to Alex. **Do not make silent architectural changes.** If you find a security hole, explain it and propose the fix before mutating the codebase.
-2. **Execution & Verification:** Write the code. You **MUST** run the test suite (`pytest tests/`) and verify your changes. **NOTHING IS REAL UNLESS WE TEST IT.** You must write WAY MORE TESTS specifically targeting edge cases, bounds, and constraints for any new logic. 
+2. **Deep-Verification & Execution:** Write the code. You **MUST** run the test suite (`pytest tests/`) and verify your changes. **NOTHING IS REAL UNLESS WE TEST IT.** You must write WAY MORE TESTS specifically targeting edge cases, bounds, and constraints for any new logic. 
     *   **Unit Tests vs. Integration:** Beware unit tests that mock the `__init__` constructor of complex objects (like `AgentLoop`). During SB.2, we discovered critical missing parameters (`workspace=`) and missing registrations (`SessionApproveTool`) because unit tests mocked them out. Write real integration tests.
+    *   **The Deep-Verification Protocol:** Do not blindly rely on the happy path. Actively look for execution deadlocks (e.g., missing dependencies causing silent import hangs that block bash pipes), silent failures masquerading as successful log lines, and resource leaks. Always test against adversarial inputs. Before declaring a feature "COMPLETE", you must verify the full integration boundary from configuration schema validation all the way to runtime object instantiation and output.
 3. **The Handover (Documentation Phase):**
     *   Tick the completed items in `STATUS.md` and `SECURITY.md`.
     *   Append new architectures or dangerous quirks to the `Memory Bank` below.
@@ -55,10 +56,11 @@ As a security-aware project manager, you must follow this exact sequence for eve
 - **Execution Gates & `.py` autonomy:** The Queen requires the ability to write and execute scripts within her workspace to actually *do* things. While we previously considered strict fail-closed methods for `classify_exec`, we must not enact blocks that cause a "power-out" for the Queen. Gating should ensure that *data* (like a scraped webpage) doesn't execute as *code*, but the Queen herself must retain the autonomy to run scripts she intentionally authors.
 - **SB.3 Session Resumption:** Ensure that when a gateway restarts, the Queen does not blindly resume executing tools from memory on the first ping. It must halt and explicitly ask "Shall I continue?".
 
-### Channel Memory Isolation
-- **No Global Minds:** The Queen must never cross-pollinate user identities, rules, or data streams between disparate chat channels indiscriminately. 
-- **Channel Streams:** Context is isolated inside `SessionManager` by mapping local context specifically to `workspace/memory/projects/ch_{channel}_{chat_id}`.
-- **Tool Context Push:** Any tool that spawns a background async process (e.g. `SpawnTool` or `SpawnPipelineTool`) MUST capture and forward context via `set_context(channel, chat_id)`. Otherwise, returning background workers will hit a null pointer or leak their output into the wrong channel stream.
+### Memory Structure: Global Identity vs. Active Projects
+- **The Dual Memory Architecture:** We abandoned strict Channel Isolation in favor of a unified Identity with distinct Project workspaces. The Queen maintains one overarching persona (`SOUL.md` and `memory/identity/`) that learns globally across all interactions.
+- **Project Workspaces (`memory/projects/{name}/`):** Task-specific data and ongoing work belong to Projects, not channels. A user can interact with the same active project from both Telegram and Discord seamlessly.
+- **Session Histories (`sessions/`):** While the Queen's *knowledge* is global and project-based, the literal turn-by-turn conversation DAGs (`DagSession`) remain scoped per chat session key (e.g., `telegram:12345`). This allows trainability across the system without intermingling direct conversational flows.
+- **Tool Context Flow:** Any background worker spawned (e.g., `SpawnTool`) inherits the active Project context rather than isolating by channel, ensuring subordinates contribute to the shared architectural goal.
 
 ### Data Obfuscation (PY.1)
 - **Token Masking:** Any credential field loaded into memory MUST be cast as a `pydantic.SecretStr` in `schema.py`. Using plain strings leaks raw API keys into log files or crash traces trivially. Always invoke `.get_secret_value()` at the last possible execution jump.
