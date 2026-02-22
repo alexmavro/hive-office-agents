@@ -460,10 +460,13 @@ class AgentLoop:
         onboarding_sys_prompt = ""
         if is_new_project or session.message_count == 0:
             onboarding_sys_prompt = (
-                "\n\n[SYSTEM: You have just been brought into a new workspace/project called "
-                f"'{session_project}'. This is a blank slate. Be genuinely curious! Politely ask the "
-                "user what your role and objective is for this specific project so you can start "
-                "structuring your memory correctly.]"
+                "\n\n[SYSTEM: You have just been initialized within a new Project Workspace called "
+                f"'{session_project}'. While your Core Identity (SOUL.md) remains constant, this specific "
+                "Workspace has a distinct, pristine 'Project Memory' separate from your global identity. "
+                "This is a blank slate for this specific environment. Actively inquire about your "
+                "specific role, the mission objectives, and any workspace-specific constraints. "
+                "You will need to build and structure this Project Memory from scratch based on the "
+                "user's guidance, ensuring that project-specific knowledge stays organized here.]"
             )
 
 
