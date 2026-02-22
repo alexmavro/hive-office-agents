@@ -131,15 +131,15 @@ class LiteLLMProvider(LLMProvider):
         # LiteLLM to reject the request with "max_tokens must be at least 1".
         max_tokens = max(1, max_tokens)
         
-        if fallbacks:
-            kwargs["fallbacks"] = [self._resolve_model(f) for f in fallbacks]
-
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+
+        if fallbacks:
+            kwargs["fallbacks"] = [self._resolve_model(f) for f in fallbacks]
         
         # Apply model-specific overrides (e.g. kimi-k2.5 temperature)
         self._apply_model_overrides(model, kwargs)

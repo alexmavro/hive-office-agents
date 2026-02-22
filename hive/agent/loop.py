@@ -322,7 +322,6 @@ class AgentLoop:
                     _tool_names = [tc.name for tc in _llm_tool_calls] if _llm_tool_calls else None
                     await self._audit.log_llm_call(
                         model=self.model,
-                    fallbacks=self.fallbacks,
                         tokens_in=_llm_usage.get("prompt_tokens", 0),
                         tokens_out=_llm_usage.get("completion_tokens", 0),
                         tool_calls_n=len(_llm_tool_calls),
@@ -752,7 +751,7 @@ Respond with ONLY valid JSON, no markdown fences."""
                     {"role": "user", "content": prompt},
                 ],
                 model=self.model,
-                    fallbacks=self.fallbacks,
+                fallbacks=self.fallbacks,
             )
             text = (response.content or "").strip()
             if not text:
