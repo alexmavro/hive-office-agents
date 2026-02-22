@@ -14,7 +14,7 @@ GitHub: `Lexi-Energy/hive-office-agents` (private)
 Not "OpenClaw but Python." What OpenClaw should have been:
 - **Security-first**: AST filter + Docker isolation. OpenClaw has a known RCE (Feb 2026). We don't.
 - **Quality over volume**: 10 battle-tested skills > 1,700 unvetted. Queen writes her own.
-- **3 channels that work perfectly** > 15 that sort-of work (Telegram ✓, SFTP, Gmail — post-S7)
+- **3 channels that work perfectly** > 15 that sort-of work (Discord, Telegram, CLI — more soon)
 - **Cost control built-in**: token budget gate, circuit breaker. No surprise bills.
 - **Modular and packageable**: each layer is independently deployable and replaceable.
 
@@ -111,26 +111,24 @@ even if it lives in the workspace directory. Never hardcode user-specific conten
 
 ## Gateway Routine (every session)
 
-**After any code change — restart the gateway:**
+**After any code change — restart the gateway safely via systemd:**
+*(Do not use screen/tmux or nohup, as this risks duplicate process polling)*
+
 ```bash
-kill $(pgrep -f "hive gateway") && sleep 2
-source /root/queen-alpha/.venv/bin/activate
-nohup hive gateway >> /root/queen-alpha/gateway.log 2>&1 &
-sleep 4 && tail -20 /root/queen-alpha/gateway.log
+sudo systemctl restart hive-gateway
 ```
 
 **Check the log before assuming code works:**
 ```bash
-tail -50 /root/queen-alpha/gateway.log
+journalctl -u hive-gateway -n 50 -f
 ```
 
-**Stale process check** — if process start time < last commit time, restart:
+**Stale process check** — verify the service is running:
 ```bash
-ps -o pid,lstart -p $(pgrep -f "hive gateway")
-git -C /root/queen-alpha log --oneline -1
+systemctl status hive-gateway
 ```
 
-Alex tests live on Telegram. Her feedback and the gateway log are real-time QA — use both.
+Alex tests live on her channels. Her feedback and the gateway log are real-time QA — use both.
 
 ## Constraints
 

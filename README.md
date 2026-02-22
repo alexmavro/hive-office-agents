@@ -2,7 +2,7 @@
 
 Autonomous AI agent system. **The Queen manages. Workers execute.**
 
-Built for real office work: Telegram-native, security-first, cost-aware. Running 24/7 on a VPS.
+Built for real office work: Multi-channel (Discord, Telegram, CLI), security-first, cost-aware. Running 24/7 on a VPS.
 
 > **For full project context:** see [CLAUDE.md](CLAUDE.md)
 > **Build status & decisions:** see [STATUS.md](STATUS.md)
@@ -11,16 +11,22 @@ Built for real office work: Telegram-native, security-first, cost-aware. Running
 
 ## Quick Start
 
+The gateway runs as a supervised systemd service to prevent duplicated polling and memory loss.
+
+**Restart the gateway & check logs**:
 ```bash
-source /root/queen-alpha/.venv/bin/activate
+sudo systemctl restart hive-gateway
+journalctl -u hive-gateway -n 20 --no-pager
 ```
 
-**Start the gateway** (Telegram + cron + heartbeat):
+---
 
-```bash
-nohup hive gateway >> /root/queen-alpha/gateway.log 2>&1 &
-sleep 4 && tail -20 /root/queen-alpha/gateway.log
-```
+## How to Interact
+
+The Queen is your manager, not a simple task-bot. You interact with her via your connected channels (e.g., Discord or Telegram).
+- **Prompting:** Give her high-level objectives. She formulates a plan and spawns background **Workers** to do the heavy lifting in isolated Docker sandboxes. Do not try to micromanage workers directly; always talk to the Queen.
+- **Approvals (Security):** Gated Tier 1 actions (like running host commands) require explicit authorization. If she needs permission, she will ask. Send `APPROVE <category>` or `APPROVE ALL` from your configured `admin` channel to authorize the current plan.
+- **Isolation:** Each channel and chat ID automatically routes to its own isolated memory project, ensuring conversations remain distinct while the Queen retains global awareness.
 
 ---
 
