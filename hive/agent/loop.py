@@ -435,9 +435,10 @@ class AgentLoop:
             )
 
         session = self.sessions.get_or_create(key)
+        if "session_project" not in session.metadata:
+            session.metadata["session_project"] = f"ch_{msg.channel}_{msg.chat_id}"
         
-        session_project = f"ch_{msg.channel}_{msg.chat_id}"
-        session.metadata["session_project"] = session_project
+        session_project = session.metadata["session_project"]
         (self.workspace / "memory" / "projects" / session_project).mkdir(parents=True, exist_ok=True)
 
 
@@ -469,6 +470,24 @@ class AgentLoop:
 
         # Handle slash commands
         cmd = msg.content.strip().lower()
+        if cmd.startswith("/project"):
+            parts = msg.content.strip().split(maxsplit=1)
+            if len(parts) == 1:
+                current = session.metadata.get("session_project", "none")
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content=f"Current active project: {current}\nUse `/project <name>` to switch.")
+            
+            import re as _re
+            new_project = parts[1].strip()
+            new_project = _re.sub(r"[^\w\s-]", "", new_project).strip()
+            new_project = _re.sub(r"[\s-]+", "_", new_project) or "default"
+            
+            session.metadata["session_project"] = new_project
+            self.sessions.save(session)
+            (self.workspace / "memory" / "projects" / new_project).mkdir(parents=True, exist_ok=True)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                  content=f"Switched session project to: {new_project}")
+
         if cmd == "/new":
             # Snapshot the current dag before clearing (clear() creates a fresh in-memory dag)
             old_dag = session._dag
@@ -491,7 +510,7 @@ class AgentLoop:
                                   content="Session deleted. Fresh start — no history, no consolidation.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐝 hive commands:\n/new — New conversation (saves memory)\n/reset — Hard reset (deletes session entirely)\n/onboard — Set up your profile\n/help — Show this")
+                                  content="🐝 hive commands:\n/new — New conversation (saves memory)\n/reset — Hard reset (deletes session entirely)\n/onboard — Set up your profile\n/project <name> — Switch active project context\n/help — Show this")
 
         # Onboarding: /onboard triggers an LLM-driven intake interview.
         # The mission prompt is injected as the "current message" so the Queen
