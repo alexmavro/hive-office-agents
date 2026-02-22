@@ -100,7 +100,7 @@ class WorkerRegistry:
         
         # Temporary in-memory session
         sm = SessionManager(Path("/tmp"))
-        session = sm.create_session("worker")
+        session = sm.get_or_create("worker")
         
         task = asyncio.create_task(
             self._run_worker_task(order, loop, session, on_complete),

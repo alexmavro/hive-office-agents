@@ -24,13 +24,13 @@ class WorkerLoop(AgentLoop):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._step_trace: list[str] = []
+        self._session_id = "worker:init"
         
         # Override the ToolRegistry immediately.
         # We strip out ExecTool, SpawnTool, MessageTool, etc.
         restricted_registry = ToolRegistry(
             workspace=self.workspace,
-            audit=self._audit,
-            session_id=self._session_id
+            audit=self._audit
         )
         
         # We must manually re-add only the safe tools that we want to allow.
@@ -39,11 +39,8 @@ class WorkerLoop(AgentLoop):
         
         for name in safe_tool_names:
             if name in self.tools:
-                # We extract the underlying function/class and register it
-                # depending on whether it's an object with an .execute method or just a callable.
                 tool_instance = self.tools._tools[name]
-                func = getattr(tool_instance, "execute", tool_instance)
-                restricted_registry.register(name=name, func=func, schema=tool_instance.schema)
+                restricted_registry.register(tool_instance)
                 
         self.tools = restricted_registry
 
