@@ -61,6 +61,7 @@ async def consolidate(
     provider: "LLMProvider",
     model: str,
     session: "Session",
+    fallbacks: list[str] | None = None,
 ) -> None:
     """Route a signal to the appropriate memory writer.
 
@@ -70,15 +71,15 @@ async def consolidate(
     """
     try:
         if signal_type == "task_success":
-            await _write_workflow(event, memory_dir, provider, model, session)
+            await _write_workflow(event, memory_dir, provider, model, session, fallbacks)
         elif signal_type == "task_failure":
-            await _write_failure(event, memory_dir, provider, model, session)
+            await _write_failure(event, memory_dir, provider, model, session, fallbacks)
         elif signal_type == "correction":
-            await _write_correction(event, memory_dir, provider, model, session)
+            await _write_correction(event, memory_dir, provider, model, session, fallbacks)
         elif signal_type == "decision":
             _write_decision(event, memory_dir, session)
         elif signal_type == "pattern":
-            await _write_pattern(event, memory_dir, provider, model, session)
+            await _write_pattern(event, memory_dir, provider, model, session, fallbacks)
         elif signal_type == "new_skill":
             _register_skill(event, memory_dir)
         else:
@@ -97,6 +98,7 @@ async def _write_workflow(
     provider: "LLMProvider",
     model: str,
     session: "Session",
+    fallbacks: list[str] | None = None,
 ) -> None:
     """Extract the working method from a successful task and save as a workflow."""
     task_type = _safe_filename(event.get("task_type", "general"))
@@ -133,7 +135,7 @@ Write a workflow document in this exact Markdown format:
 
 Be specific. Use exact commands where applicable. Keep it practical."""
 
-    content = await _llm_extract(provider, model, prompt)
+    content = await _llm_extract(provider, model, prompt, fallbacks)
     if not content:
         return
 
@@ -159,6 +161,7 @@ async def _write_failure(
     provider: "LLMProvider",
     model: str,
     session: "Session",
+    fallbacks: list[str] | None = None,
 ) -> None:
     """Extract a failure lesson and append to lessons/failures.md."""
     summary = event.get("summary", "")
@@ -185,7 +188,7 @@ Write the lesson in this format:
 
 Be direct. Include exact error patterns if visible."""
 
-    content = await _llm_extract(provider, model, prompt)
+    content = await _llm_extract(provider, model, prompt, fallbacks)
     if not content:
         return
 
@@ -208,6 +211,7 @@ async def _write_correction(
     provider: "LLMProvider",
     model: str,
     session: "Session",
+    fallbacks: list[str] | None = None,
 ) -> None:
     """Apply a user correction to the appropriate memory file."""
     summary = event.get("summary", "")
@@ -283,6 +287,7 @@ async def _write_pattern(
     provider: "LLMProvider",
     model: str,
     session: "Session",
+    fallbacks: list[str] | None = None,
 ) -> None:
     """Extract a recognized pattern and append to lessons/patterns.md."""
     summary = event.get("summary", "")
@@ -363,7 +368,7 @@ def _recent_session_text(session: "Session", max_entries: int = 20) -> str:
         return "(session context unavailable)"
 
 
-async def _llm_extract(provider: "LLMProvider", model: str, prompt: str) -> str | None:
+async def _llm_extract(provider: "LLMProvider", model: str, prompt: str, fallbacks: list[str] | None = None) -> str | None:
     """Call the LLM to extract structured content from a prompt."""
     try:
         response = await provider.chat(
@@ -372,6 +377,7 @@ async def _llm_extract(provider: "LLMProvider", model: str, prompt: str) -> str 
                 {"role": "user", "content": prompt},
             ],
             model=model,
+            fallbacks=fallbacks,
             max_tokens=1024,
         )
         return (response.content or "").strip() or None
