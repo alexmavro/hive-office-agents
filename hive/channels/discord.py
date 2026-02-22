@@ -32,6 +32,7 @@ class DiscordChannel(BaseChannel):
         self._heartbeat_task: asyncio.Task | None = None
         self._typing_tasks: dict[str, asyncio.Task] = {}
         self._http: httpx.AsyncClient | None = None
+        self._channel_names: dict[str, str] = {}
 
     async def start(self) -> None:
         """Start the Discord gateway connection."""
@@ -234,20 +235,50 @@ class DiscordChannel(BaseChannel):
 
         # Publish directly (not via _handle_message) so we can set the per-channel
         # role from channel_routes without BaseChannel overwriting it with self.role.
+        metadata = {
+            "message_id": str(payload.get("id", "")),
+            "guild_id": payload.get("guild_id"),
+            "reply_to": reply_to,
+            "channel_role": effective_role,
+        }
+        
+        # Inject channel name if available
+        channel_name = await self._get_channel_name(channel_id)
+        if channel_name:
+            metadata["channel_name"] = channel_name
+
         msg = InboundMessage(
             channel=self.name,
             sender_id=sender_id,
             chat_id=channel_id,
             content="\n".join(p for p in content_parts if p) or "[empty message]",
             media=media_paths,
-            metadata={
-                "message_id": str(payload.get("id", "")),
-                "guild_id": payload.get("guild_id"),
-                "reply_to": reply_to,
-                "channel_role": effective_role,
-            },
+            metadata=metadata,
         )
         await self.bus.publish_inbound(msg)
+
+    async def _get_channel_name(self, channel_id: str) -> str | None:
+        """Fetch and cache the Discord channel name."""
+        if channel_id in self._channel_names:
+            return self._channel_names[channel_id]
+            
+        if not self._http:
+            return None
+            
+        try:
+            url = f"{DISCORD_API_BASE}/channels/{channel_id}"
+            headers = {"Authorization": f"Bot {self.config.token.get_secret_value()}"}
+            resp = await self._http.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            name = data.get("name")
+            if name:
+                self._channel_names[channel_id] = name
+                return name
+        except Exception as e:
+            logger.debug(f"Failed to fetch channel name for {channel_id}: {e}")
+            
+        return None
 
     async def _start_typing(self, channel_id: str) -> None:
         """Start periodic typing indicator for a channel."""

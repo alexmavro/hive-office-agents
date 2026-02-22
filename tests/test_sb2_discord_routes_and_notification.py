@@ -80,8 +80,10 @@ def _make_discord_channel(channel_routes: dict | None = None, default_role: str 
     bus = MagicMock(spec=MessageBus)
     bus.publish_inbound = AsyncMock()
     ch = DiscordChannel(cfg, bus)
-    # Provide a mock HTTP client so attachment download doesn't crash
+    
+    # Provide mock HTTP and channel name methods so downloads and API hits don't crash
     ch._http = AsyncMock()
+    ch._get_channel_name = AsyncMock(return_value=None)
     ch._running = True
     return ch, bus
 

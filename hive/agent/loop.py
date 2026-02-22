@@ -435,11 +435,36 @@ class AgentLoop:
             )
 
         session = self.sessions.get_or_create(key)
+        
+        is_new_project = False
         if "session_project" not in session.metadata:
-            session.metadata["session_project"] = f"ch_{msg.channel}_{msg.chat_id}"
+            # Use channel_name (e.g. from Discord) if provided, otherwise fallback to chat_id
+            c_name = msg.metadata.get("channel_name")
+            if c_name:
+                import re as _re
+                safe_name = _re.sub(r"[^\w\s-]", "", c_name).strip()
+                safe_name = _re.sub(r"[\s-]+", "_", safe_name) or "default"
+                session_project = f"{msg.channel}_{safe_name}"
+            else:
+                session_project = f"ch_{msg.channel}_{msg.chat_id}"
+                
+            session.metadata["session_project"] = session_project
+            is_new_project = True
         
         session_project = session.metadata["session_project"]
-        (self.workspace / "memory" / "projects" / session_project).mkdir(parents=True, exist_ok=True)
+        project_dir = self.workspace / "memory" / "projects" / session_project
+        if not project_dir.exists():
+            is_new_project = True
+            project_dir.mkdir(parents=True, exist_ok=True)
+            
+        onboarding_sys_prompt = ""
+        if is_new_project or session.message_count == 0:
+            onboarding_sys_prompt = (
+                "\n\n[SYSTEM: You have just been brought into a new workspace/project called "
+                f"'{session_project}'. This is a blank slate. Be genuinely curious! Politely ask the "
+                "user what your role and objective is for this specific project so you can start "
+                "structuring your memory correctly.]"
+            )
 
 
         # SB.3: Session resumption tracking
@@ -471,6 +496,10 @@ class AgentLoop:
         # Handle slash commands
         cmd = msg.content.strip().lower()
         if cmd.startswith("/project"):
+            if msg.metadata.get("channel_role") != "admin":
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Error: Only administrators can switch project contexts via the `/project` command.")
+            
             parts = msg.content.strip().split(maxsplit=1)
             if len(parts) == 1:
                 current = session.metadata.get("session_project", "none")

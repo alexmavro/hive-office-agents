@@ -59,8 +59,10 @@ As a security-aware project manager, you must follow this exact sequence for eve
 ### Memory Structure: Global Identity vs. Active Projects
 - **The Dual Memory Architecture:** We abandoned strict Channel Isolation in favor of a unified Identity with distinct Project workspaces. The Queen maintains one overarching persona (`SOUL.md` and `memory/identity/`) that learns globally across all interactions.
 - **Project Workspaces (`memory/projects/{name}/`):** Task-specific data and ongoing work belong to Projects, not channels. A user can interact with the same active project from both Telegram and Discord seamlessly.
+  - *Note on Projects:* Think of this exactly like "Claude Projects" or "Custom GPTs". When a user creates a new Discord channel, the Queen automatically maps it to a new Project space, becomes curious, and starts asking about her explicit role and objective so she can categorize the context correctly.
 - **Session Histories (`sessions/`):** While the Queen's *knowledge* is global and project-based, the literal turn-by-turn conversation DAGs (`DagSession`) remain scoped per chat session key (e.g., `telegram:12345`). This allows trainability across the system without intermingling direct conversational flows.
 - **Tool Context Flow:** Any background worker spawned (e.g., `SpawnTool`) inherits the active Project context rather than isolating by channel, ensuring subordinates contribute to the shared architectural goal.
+- **Future Functionality — Worker-Team Channel Routing:** Soon, we will allow explicit worker-teams or Hive-Specialists to interact with their respective explicit Discord channels. This prevents the Queen from acting as an annoying intermediary for everything, saving her resources for high-level management rather than message-passing.
 
 ### Data Obfuscation (PY.1)
 - **Token Masking:** Any credential field loaded into memory MUST be cast as a `pydantic.SecretStr` in `schema.py`. Using plain strings leaks raw API keys into log files or crash traces trivially. Always invoke `.get_secret_value()` at the last possible execution jump.
