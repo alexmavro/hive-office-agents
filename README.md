@@ -47,6 +47,8 @@ sleep 4 && tail -20 /root/queen-alpha/gateway.log
 ~/.hive/sessions/          # Conversation history (JSONL DAG)
 ```
 
+**Memory Isolation Note**: Each channel connection (e.g. a specific Discord channel) automatically gets its own isolated project folder at `~/.hive/workspace/memory/projects/ch_{channel}_{chat_id}` to prevent context bleeding between different conversations, while the Queen retains global awareness.
+
 Minimal config example:
 
 ```json
@@ -107,7 +109,6 @@ hive/
 
 workspace/        # Template workspace files (SOUL.md, AGENTS.md)
 templates/memory/ # Memory hierarchy templates
-bridge/           # WhatsApp bridge (TypeScript/Node.js — deprioritized)
 ```
 
 ---
@@ -139,9 +140,4 @@ docker build -f worker.Dockerfile -t hive-worker:latest .
 | S6 | Safety rails | Not started |
 | S7 | Emission stream | Not started |
 
----
 
-## Attribution
-
-Built on [nanobot](https://github.com/HKUDS/nanobot) v0.1.3.post7 (MIT License).
-See [NANOBOT_BASELINE.md](NANOBOT_BASELINE.md) for upstream attribution details.

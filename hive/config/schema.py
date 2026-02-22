@@ -192,6 +192,7 @@ class AgentDefaults(BaseModel):
     model: str = "anthropic/claude-opus-4-5"
     max_tokens: int = Field(8192, ge=1, le=200000)
     temperature: float = Field(0.7, ge=0.0, le=2.0)
+    fallbacks: list[str] = Field(default_factory=list)
     max_tool_iterations: int = Field(20, ge=1, le=200)
     memory_window: int = Field(50, ge=1, le=10000)
 
@@ -367,6 +368,6 @@ class Config(BaseSettings):
         return None
     
     model_config = ConfigDict(
-        env_prefix="NANOBOT_",
+        env_prefix="HIVE_",
         env_nested_delimiter="__"
     )

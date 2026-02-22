@@ -334,12 +334,17 @@ def gateway(
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
 
+    # Create worker registry
+    from hive.agent.worker.registry import WorkerRegistry
+    worker_registry = WorkerRegistry(config)
+
     # Create agent with cron service
     agent = AgentLoop(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        fallbacks=config.agents.defaults.fallbacks,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
@@ -351,6 +356,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         audit=audit,
+        worker_registry=worker_registry,
     )
     
     # Set cron callback (needs agent)
@@ -428,6 +434,7 @@ def gateway(
                 "gateway_start",
                 pid=os.getpid(),
                 model=config.agents.defaults.model,
+        fallbacks=config.agents.defaults.fallbacks,
                 channels=channels.enabled_channels,
             )
             asyncio.create_task(run_retention(
@@ -509,6 +516,7 @@ def agent(
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        fallbacks=config.agents.defaults.fallbacks,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,

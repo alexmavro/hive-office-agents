@@ -215,7 +215,6 @@ def _make_loop():
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         patch.object(AgentLoop, "_register_default_tools"),
     ):
@@ -327,7 +326,6 @@ async def test_process_message_admin_channel_approve_bypasses_llm():
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         patch.object(AgentLoop, "_register_default_tools"),
     ):
@@ -369,7 +367,6 @@ async def test_process_message_user_channel_approve_goes_to_llm():
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         patch.object(AgentLoop, "_register_default_tools"),
     ):
@@ -420,7 +417,6 @@ def test_agent_loop_registry_has_workspace():
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         patch.object(AgentLoop, "_register_default_tools"),
     ):
@@ -442,7 +438,6 @@ def test_agent_loop_registers_session_approve_tool():
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         # Do NOT mock _register_default_tools — we want the real registration
         patch("hive.agent.tools.docker_exec.DockerExecTool.is_available", return_value=False),

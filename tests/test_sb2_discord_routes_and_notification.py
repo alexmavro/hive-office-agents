@@ -179,7 +179,6 @@ def _make_loop_with_workspace(tmp_path: Path):
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         patch.object(AgentLoop, "_register_default_tools"),
     ):
@@ -254,7 +253,6 @@ def test_known_chats_loaded_on_init(tmp_path):
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         patch.object(AgentLoop, "_register_default_tools"),
     ):
@@ -279,7 +277,6 @@ async def test_process_message_saves_known_chat(tmp_path):
     with (
         patch("hive.agent.loop.ContextBuilder"),
         patch("hive.agent.loop.SessionManager"),
-        patch("hive.agent.loop.SubagentManager"),
         patch("hive.agent.loop.initialize_memory_hierarchy"),
         patch.object(AgentLoop, "_register_default_tools"),
     ):

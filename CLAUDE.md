@@ -7,7 +7,6 @@ The Queen manages. Workers execute. The architecture is collaborative and modula
 
 The Queen is a *manager*, not a worker. She plans, delegates, quality-checks, learns, and is user-centric — not task-focused. This distinction is fundamental. Without it, it's just a chatbot.
 
-Built on **nanobot** v0.1.3.post7 (see [NANOBOT_BASELINE.md](NANOBOT_BASELINE.md) for upstream attribution).
 GitHub: `Lexi-Energy/hive-office-agents` (private)
 
 ## Vision: What We're Building
@@ -158,8 +157,8 @@ Alex tests live on Telegram. Her feedback and the gateway log are real-time QA �
 - Telegram bot: @hive_queen_alpha_bot (allowlisted to Alex only)
 - GitHub PAT: stored in git remote URL only (not in any file)
 - Audit command: `git log --all -p | grep -E '(AIzaSy|bot_token_prefix|github_pat_)' `
-- **SB.1 (live)**: `ToolRegistry.execute()` gate — Tier 0 hard-reject (rm -rf, disk wipe, etc.), Tier 1 deferred return (requires `session_approve` or admin APPROVE), Tier 2 always-free. `exec` is now gated.
-- **SB.2 (live)**: Channel `role: Literal["user","admin","notification"]` on all 9 channel configs. Discord `channel_routes` for per-text-channel role overrides. Admin-channel `APPROVE <category>` bypasses LLM. Notification channels drop inbound in code. Known-chats persistence (`_known_chats.json`) + "Notification Targets" in system prompt.
+- **SB.1 (live)**: `ToolRegistry.execute()` gate — Tier 0 hard-reject (rm -rf, disk wipe, etc.), Tier 1 deferred return (requires `session_approve` or admin APPROVE), Tier 2 always-free. `exec` is now gated. Approvals only last for the current plan/turn.
+- **SB.2 (live)**: Channel `role: Literal["user","admin","notification"]` on all 9 channel configs. Discord `channel_routes` for per-text-channel role overrides. Admin-channel `APPROVE <category>` bypasses LLM. Notification channels drop inbound in code. Known-chats persistence (`_known_chats.json`) + "Notification Targets" in system prompt. Inherently routes isolated project memory per channel.
 - **SB.3/SB.4 (planned)**: Session resumption check + skill first-run gate. See `SECURITY.md` and `reference-repos/pydantic-governance.md`.
 
 ## Session Continuity Protocol
@@ -196,7 +195,6 @@ Rule: if a new session can't figure out what to do next from CLAUDE.md + STATUS.
 │   ├── templates/                 # Memory hierarchy templates (git-tracked, no user data)
 │   │   └── memory/                # Copied to ~/.hive/workspace/memory/ on first boot
 │   ├── workspace/                 # Template workspace files (SOUL.md, AGENTS.md, etc.)
-│   ├── bridge/                    # WhatsApp bridge (TypeScript/Node.js)
 │   ├── docs/                      # Planning, specs, references (git-tracked)
 │   │   └── specs/                 # Alex's vision docs (memory architecture, build specs)
 │   ├── tests/                     # pytest suite (289 tests)
@@ -216,7 +214,7 @@ Rule: if a new session can't figure out what to do next from CLAUDE.md + STATUS.
 │       │   ├── MEMORY.md          # Rich long-term facts (populated, valuable)
 │       │   ├── identity/          # user.md, constraints.md, preferences.md (after /onboard)
 │       │   ├── systems/           # infrastructure.md, tools.md
-│       │   ├── projects/          # per-project working memory
+│       │   ├── projects/          # per-project/channel working memory (e.g. ch_discord_123)
 │       │   ├── procedural/        # workflows/ and fixes/
 │       │   ├── lessons/           # failures.md, patterns.md, corrections.md
 │       │   └── skills/            # skills_registry.json

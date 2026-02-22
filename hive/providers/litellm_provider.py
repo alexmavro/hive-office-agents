@@ -109,6 +109,7 @@ class LiteLLMProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         model: str | None = None,
         max_tokens: int = 4096,
+        fallbacks: list[str] | None = None,
         temperature: float = 0.7,
     ) -> LLMResponse:
         """
@@ -130,6 +131,9 @@ class LiteLLMProvider(LLMProvider):
         # LiteLLM to reject the request with "max_tokens must be at least 1".
         max_tokens = max(1, max_tokens)
         
+        if fallbacks:
+            kwargs["fallbacks"] = [self._resolve_model(f) for f in fallbacks]
+
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
