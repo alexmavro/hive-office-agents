@@ -308,7 +308,7 @@ S4    Hive Manager  ← after SB.1 (gate is live, can start)
 - [x] SB.2 notification-channel inbound drop — enforced in code, not just convention
 - [x] Configure `role: admin` on at least one channel in `~/.hive/config.json`
 - [x] SB.3 session resumption check — live and tested
-- [x] SB.4 skill first-run gate — live and tested
+- [x] SB.4 skill first-run gate — live and tested *(Note: SB.4 currently bypassed for workspace scripts via `gate.py` step 4 short-circuit; slated for post-S4 architectural review).*
 - [x] PY.2 `SecretStr` for environment variables
 - [x] PY.1 `SecretStr` on all credential fields
 - [x] PY.2 SSRF validator on `web_fetch`
