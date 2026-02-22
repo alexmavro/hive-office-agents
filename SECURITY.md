@@ -12,13 +12,14 @@ Do NOT open a public GitHub issue for security vulnerabilities.
 
 ---
 
-## Deployment Trust Model
+## Deployment Trust Model & The Core Tradeoff
 
 The VPS is the security perimeter — not Queen.
 
-- SSH-only access, all other ports firewalled, Tailscale planned before any external exposure
-- Whoever is authenticated on the server has admin rights by definition
-- Queen's security layers govern what she does **after** receiving a message — not who can reach her
+- SSH-only access, all other ports firewalled, Tailscale planned before any external exposure.
+- Whoever is authenticated on the server has admin rights by definition.
+- Queen's security layers govern what she does **after** receiving a message — not who can reach her.
+- **The Core Tradeoff (Risk vs actual Usability):** A ship is safest in harbor, but that is not why ships were built. The VPS is a dedicated system for the hive with 24h backups. We must *never* limit the Queen's ability to execute `.py` files or fully utilize her environment just to cover hypothetical risks. A hyper-restrictive system leads to a complete power-out. Security must focus on preventing malicious third-party prompt injections and external control, while maximizing the Queen's speed, usability, and autonomy.
 
 Claude Code (this terminal) is a separate system. It does not touch Queen's ToolRegistry or
 approval gate. Its approval prompts are its own mechanism, independent of Queen's.
