@@ -31,7 +31,7 @@ class MemoryRetriever:
     def __init__(self, workspace: Path):
         self.memory_dir = workspace / "memory"
 
-    def build_memory_context(self, task_hint: str | None = None) -> str:
+    def build_memory_context(self, task_hint: str | None = None, session_project: str | None = None) -> str:
         """Assemble context string for injection into the system prompt.
 
         Args:
@@ -50,7 +50,7 @@ class MemoryRetriever:
                 parts.append(content.strip())
 
         # --- ALWAYS LOADED: active project working memory ---
-        active = self._get_active_project()
+        active = session_project or self._get_active_project()
         if active:
             wm = self._load_if_exists(f"projects/{active}/working_memory.yaml")
             if wm:

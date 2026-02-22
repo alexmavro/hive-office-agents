@@ -84,12 +84,14 @@ class ToolRegistry:
         audit: "AuditLogger | None" = None,
         workspace: Path | None = None,
         approval_timeout: float = 300.0,
+        worker_registry: Any = None,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._audit = audit
         self._session_id: str | None = None
         self._workspace = workspace
         self._approval_timeout = approval_timeout  # reserved for SB.2
+        self.worker_registry = worker_registry
 
         # SB.1: session-level pre-approved categories
         self._pre_approved: set[str] = set()
@@ -153,6 +155,10 @@ class ToolRegistry:
                 if script_hash not in approved_data.get("approved_hashes", []):
                     approved_data.setdefault("approved_hashes", []).append(script_hash)
                     approved_json_path.write_text(json.dumps(approved_data, indent=2))
+
+    def clear_approvals(self) -> None:
+        """Clear all session-level pre-approvals. Used to scope approvals to a single turn/plan."""
+        self._pre_approved.clear()
 
     async def receive_approval(self, approval_id: str, approved: bool) -> bool:
         """SB.2 hook: resolve a pending per-action approval request.

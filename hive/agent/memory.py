@@ -213,8 +213,11 @@ class MemoryStore:
     (see hive/session/dag.py). HISTORY.md is no longer used.
     """
 
-    def __init__(self, workspace: Path):
-        self.memory_dir = ensure_dir(workspace / "memory")
+    def __init__(self, workspace: Path, memory_dir: Path | None = None):
+        if memory_dir:
+            self.memory_dir = ensure_dir(memory_dir)
+        else:
+            self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
 
     def read_long_term(self) -> str:

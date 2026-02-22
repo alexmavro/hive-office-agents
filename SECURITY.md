@@ -58,7 +58,7 @@ Hard-rejected in `ToolRegistry.execute()` before anything else. Applies to Queen
 
 **No blocking wait.** Gate returns a deferred message immediately. LLM tells user what it
 needs. User says "yes". LLM calls `session_approve(category, reason)` → gate clears for that
-category for the rest of the session. The agent loop never freezes.
+category for the rest of the **current plan/turn**. The agent loop never freezes, and the approval is explicitly wiped when the LLM finishes responding to the message.
 
 **Admin-channel shortcut (SB.2):** User sends `APPROVE exec` (or `APPROVE ALL`) to a
 `role: admin` channel. Intercepted before LLM — `registry.pre_approve(category)` called

@@ -76,7 +76,7 @@ async def consolidate(
         elif signal_type == "correction":
             await _write_correction(event, memory_dir, provider, model, session)
         elif signal_type == "decision":
-            _write_decision(event, memory_dir)
+            _write_decision(event, memory_dir, session)
         elif signal_type == "pattern":
             await _write_pattern(event, memory_dir, provider, model, session)
         elif signal_type == "new_skill":
@@ -237,15 +237,21 @@ async def _write_correction(
     logger.info(f"Correction logged to {filepath}")
 
 
-def _write_decision(event: dict, memory_dir: Path) -> None:
+def _write_decision(event: dict, memory_dir: Path, session: "Session" = None) -> None:
     """Append a decision to the active project's decisions.md."""
     summary = event.get("summary", "")
     task_type = event.get("task_type", "")
 
     # Find active project
-    marker = memory_dir / ".active_project"
-    if marker.exists():
-        active = marker.read_text(encoding="utf-8").strip()
+    active = None
+    if session and session.metadata.get("session_project"):
+        active = session.metadata["session_project"]
+    else:
+        marker = memory_dir / ".active_project"
+        if marker.exists():
+            active = marker.read_text(encoding="utf-8").strip()
+
+    if active:
         filepath = memory_dir / "projects" / active / "decisions.md"
     else:
         # Fall back to a general decisions log

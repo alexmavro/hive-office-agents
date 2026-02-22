@@ -20,7 +20,7 @@ from hive.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileToo
 from hive.agent.tools.shell import ExecTool
 from hive.agent.tools.web import WebSearchTool, WebFetchTool
 from hive.agent.tools.message import MessageTool
-from hive.agent.tools.spawn import SpawnTool
+from hive.agent.tools.worker_tools import SpawnTool, SpawnPipelineTool, WorkersListTool
 from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.tools.docker_exec import DockerExecTool
@@ -29,7 +29,6 @@ from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt, get_link_intake_prompt
 from hive.agent.admin import factory_reset, CONFIRM_PHRASE
-from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
 from hive.session.manager import Session, SessionManager
 
@@ -69,6 +68,7 @@ class AgentLoop:
         provider: LLMProvider,
         workspace: Path,
         model: str | None = None,
+        fallbacks: list[str] | None = None,
         max_iterations: int = 20,
         temperature: float = 0.7,
         max_tokens: int = 4096,
@@ -80,13 +80,16 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         audit: "AuditLogger | None" = None,
+        worker_registry: "WorkerRegistry | None" = None,
     ):
         from hive.config.schema import ExecToolConfig
         from hive.cron.service import CronService
+        from hive.agent.worker.registry import WorkerRegistry
         self.bus = bus
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
+        self.fallbacks = fallbacks or []
         self.max_iterations = max_iterations
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -104,17 +107,7 @@ class AgentLoop:
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry(audit=audit, workspace=workspace)
-        self.subagents = SubagentManager(
-            provider=provider,
-            workspace=workspace,
-            bus=bus,
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            brave_api_key=brave_api_key,
-            exec_config=self.exec_config,
-            restrict_to_workspace=restrict_to_workspace,
-        )
+        self.worker_registry = worker_registry
         
         self._running = False
         self._mcp_servers = mcp_servers or {}
@@ -152,9 +145,21 @@ class AgentLoop:
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
         self.tools.register(message_tool)
         
-        # Spawn tool (for subagents)
-        spawn_tool = SpawnTool(manager=self.subagents)
-        self.tools.register(spawn_tool)
+        # Worker Management Tools
+        if self.worker_registry:
+            self.worker_registry.bind_loop_context(
+                bus=self.bus,
+                provider=self.provider,
+                workspace=self.workspace,
+                model=self.model,
+                fallbacks=self.fallbacks,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                audit=self._audit
+            )
+            self.tools.register(SpawnTool(worker_registry=self.worker_registry))
+            self.tools.register(SpawnPipelineTool(worker_registry=self.worker_registry))
+            self.tools.register(WorkersListTool(worker_registry=self.worker_registry))
         
         # Cron tool (for scheduling)
         if self.cron_service:
@@ -302,6 +307,7 @@ class AgentLoop:
                     messages=messages,
                     tools=self.tools.get_definitions(),
                     model=self.model,
+                    fallbacks=self.fallbacks,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                 )
@@ -316,6 +322,7 @@ class AgentLoop:
                     _tool_names = [tc.name for tc in _llm_tool_calls] if _llm_tool_calls else None
                     await self._audit.log_llm_call(
                         model=self.model,
+                    fallbacks=self.fallbacks,
                         tokens_in=_llm_usage.get("prompt_tokens", 0),
                         tokens_out=_llm_usage.get("completion_tokens", 0),
                         tool_calls_n=len(_llm_tool_calls),
@@ -428,6 +435,11 @@ class AgentLoop:
             )
 
         session = self.sessions.get_or_create(key)
+        
+        session_project = f"ch_{msg.channel}_{msg.chat_id}"
+        session.metadata["session_project"] = session_project
+        (self.workspace / "memory" / "projects" / session_project).mkdir(parents=True, exist_ok=True)
+
 
         # SB.3: Session resumption tracking
         if hasattr(self, "_seen_sessions") is False:
@@ -601,6 +613,7 @@ class AgentLoop:
             channel=msg.channel,
             chat_id=msg.chat_id,
             notification_targets=self._known_chats if self._known_chats else None,
+            session_project=session_project,
         )
         final_content, tools_used = await self._run_agent_loop(initial_messages)
 
@@ -614,6 +627,9 @@ class AgentLoop:
         session.add_message("assistant", final_content,
                             tools_used=tools_used if tools_used else None)
         self.sessions.save(session)
+        
+        # SB.1: Scope approvals to a single plan/turn by wiping them once we finish processing
+        self.tools.clear_approvals()
 
         if self._audit:
             await self._audit.log_channel_event(
@@ -632,7 +648,7 @@ class AgentLoop:
     
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
         """
-        Process a system message (e.g., subagent announce).
+        Process a system message (e.g., worker status announce).
         
         The chat_id field contains "original_channel:original_chat_id" to route
         the response back to the correct destination.
@@ -657,6 +673,7 @@ class AgentLoop:
             current_message=msg.content,
             channel=origin_channel,
             chat_id=origin_chat_id,
+            session_project=session.metadata.get("session_project"),
         )
         final_content, _ = await self._run_agent_loop(initial_messages)
 
@@ -666,6 +683,8 @@ class AgentLoop:
         session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
         session.add_message("assistant", final_content)
         self.sessions.save(session)
+        
+        self.tools.clear_approvals()
         
         return OutboundMessage(
             channel=origin_channel,
@@ -733,6 +752,7 @@ Respond with ONLY valid JSON, no markdown fences."""
                     {"role": "user", "content": prompt},
                 ],
                 model=self.model,
+                    fallbacks=self.fallbacks,
             )
             text = (response.content or "").strip()
             if not text:
@@ -787,6 +807,7 @@ Respond with ONLY valid JSON, no markdown fences."""
                 memory_dir=memory_dir,
                 provider=self.provider,
                 model=self.model,
+                fallbacks=self.fallbacks,
                 session=session,
             )
         )

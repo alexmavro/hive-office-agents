@@ -28,7 +28,7 @@ class ContextBuilder:
         self.retriever = MemoryRetriever(workspace)
         self.skills = SkillsLoader(workspace)
     
-    def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
+    def build_system_prompt(self, skill_names: list[str] | None = None, session_project: str | None = None) -> str:
         """
         Build the system prompt from bootstrap files, memory, and skills.
         
@@ -50,7 +50,7 @@ class ContextBuilder:
         
         # Memory context: query-driven retrieval from memory/ hierarchy.
         # Falls back to legacy MEMORY.md if the hierarchy has no content.
-        memory = self.retriever.build_memory_context()
+        memory = self.retriever.build_memory_context(session_project=session_project)
         if not memory:
             memory = self.memory.get_memory_context()
         if memory:
@@ -86,6 +86,14 @@ Skills with available="false" need dependencies installed first - you can try in
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         
+        projects_dir = self.workspace / "memory" / "projects"
+        active_projects = []
+        if projects_dir.exists():
+            for p in projects_dir.iterdir():
+                if p.is_dir() and not p.name.startswith("_"):
+                    active_projects.append(p.name)
+        active_projects_str = ", ".join(active_projects) if active_projects else "None"
+
         return f"""# System Context
 
 ## Current Time
@@ -104,7 +112,7 @@ Memory files:
 - `{workspace_path}/memory/identity/constraints.md` — their non-negotiables
 - `{workspace_path}/memory/identity/preferences.md` — how they want to work
 - `{workspace_path}/memory/systems/` — infrastructure knowledge
-- `{workspace_path}/memory/projects/` — project context
+- `{workspace_path}/memory/projects/` — project context. (Currently active projects/channels: {active_projects_str})
 - `{workspace_path}/memory/procedural/` — learned workflows
 - `{workspace_path}/memory/lessons/` — failures and patterns
 
@@ -135,6 +143,7 @@ Memory files:
         channel: str | None = None,
         chat_id: str | None = None,
         notification_targets: dict[str, str] | None = None,
+        session_project: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call.
@@ -154,7 +163,7 @@ Memory files:
         messages = []
 
         # System prompt
-        system_prompt = self.build_system_prompt(skill_names)
+        system_prompt = self.build_system_prompt(skill_names, session_project=session_project)
         session_section = ""
         if channel and chat_id:
             session_section += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"

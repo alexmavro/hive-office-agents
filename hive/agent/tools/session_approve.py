@@ -48,7 +48,8 @@ class SessionApproveTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Grant session-level approval for a category of Tier 1 (gated) actions. "
+            "Grant approval for a category of Tier 1 (gated) actions. "
+            "This approval ONLY lasts for the duration of the current task/plan (until you finish processing this request). "
             "Call this ONLY when the user has explicitly approved a category of actions — "
             "never call it speculatively or to unblock your own requests without user consent. "
             "Valid categories: exec, write, git, packages, spawn."
@@ -73,6 +74,10 @@ class SessionApproveTool(Tool):
         }
 
     async def execute(self, category: str, reason: str, **kwargs: Any) -> str:
+        role = getattr(self._registry, "_channel_role", "user")
+        if role != "admin":
+            return "Error: You cannot approve Tier 1 actions because the user in this channel is not an admin."
+        
         if category not in _VALID_CATEGORIES:
             return (
                 f"Error: '{category}' is not a valid approval category. "
@@ -80,8 +85,8 @@ class SessionApproveTool(Tool):
             )
         self._registry.pre_approve(category)
         return (
-            f"Session approval granted for category '{category}'. "
+            f"Approval granted for category '{category}'. "
             f"Reason recorded: {reason!r}. "
             f"Tier 1 actions in this category will now proceed without further prompting "
-            f"for the remainder of this session."
+            f"for the remainder of this plan/turn."
         )

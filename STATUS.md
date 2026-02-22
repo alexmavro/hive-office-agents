@@ -1,10 +1,18 @@
 # STATUS.md
 
-## Current step: SB (Security Boundaries) — NOT STARTED — PREREQUISITE for S4
-## Last git commit: `802ed62` — SA fix: wire audit logger into hive agent CLI command
-## Git tag: `queen-alpha_S3_docker_executor` (at `0693718`) — SA layer is a parallel track, no new tag
+## Current step: S4 — Hive Manager (COMPLETE)
+## Last git commit: `1bd8734`
+## Git tag: `queen-alpha_S4_hive_manager`
 
-## S2 Checklist
+## S4 Checklist (Completed)
+
+- [x] **S4.1**: `WorkerLoop` — `AgentLoop` subclass with restricted tool set (`docker_exec`, no shell), `max_iterations` cap, `provide_final_answer` grace mechanism.
+- [x] **S4.2**: `WorkerRegistry` & Lifecycle — Tracks active tasks, enforces `maxWorkers` cap, limits concurrency.
+- [x] **S4.3**: `spawn` & `spawn_pipeline` tools — Queen passes Pydantic DMZ config down to registry; pipeline strings tasks sequentially.
+- [x] **S4.4**: `workers` tool — Queen lists background worker uptimes and recent completion reports.
+- [x] **S4.5**: Bus Event Injection — Re-routed pipeline start/end messaging directly into the event bus for immediate Discord/Telegram notification.
+
+## SB Checklist
 
 - [x] S2.1: Memory hierarchy templates (`templates/memory/`) + SOUL.md rewrite — commit `c30f1a4`
 - [x] S2.2: Retrieval integration — `MemoryRetriever`, query-driven memory/ in system prompt — commit `07e738f`
@@ -303,8 +311,8 @@ the gate from ToolRegistry automatically. Next: SB.3 (session resumption check).
 
 ### SB Checklist
 
-- [x] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 hard-reject + Tier 1 deferred-return (no blocking) + Tier 2 always-free. `session_approve` Tier-2 tool lets LLM unlock Tier 1 categories after explicit user consent. — commits `c98aff5` + `7fe2d7c`
-- [x] **SB.2**: Channel role config (`role: Literal["user","admin","notification"]` on all 9 channel models). `channel_role` injected into every `InboundMessage.metadata` via `BaseChannel._handle_message`. Admin-channel `APPROVE <category>` / `APPROVE ALL` commands intercepted in `AgentLoop._process_message` before the LLM, calling `registry.pre_approve()` directly — no LLM in the approval path. Caller cannot spoof role (config always wins). **Discord `channel_routes`**: per-text-channel role override — one bot, many channels, each with its own trust level; notification channels now drop inbound silently (enforced in code, not just convention). **Known-chats persistence**: every inbound message writes `(channel, chat_id)` to `workspace/.known_chats.json`; loaded on gateway restart; injected into system prompt as "Notification Targets" so Queen always knows where to reach the user. `notification_chat_id` config field on Telegram + Discord for manual bootstrap before first message. — 473 tests pass
+- [x] **SB.1**: Tiered gate in `ToolRegistry.execute()` — Tier 0 hard-reject + Tier 1 deferred-return (no blocking) + Tier 2 always-free. `session_approve` Tier-2 tool lets LLM unlock Tier 1 categories after explicit user consent. **Update 2026-02-22**: Approvals are now strictly plan/turn-specific and wipe entirely when the Queen finishes processing the current message.
+- [x] **SB.2**: Channel role config (`role: Literal["user","admin","notification"]` on all 9 channel models). `channel_role` injected into every `InboundMessage.metadata` via `BaseChannel._handle_message`. Admin-channel `APPROVE <category>` / `APPROVE ALL` commands intercepted in `AgentLoop._process_message` before the LLM, calling `registry.pre_approve()` directly — no LLM in the approval path. Caller cannot spoof role. **Discord `channel_routes`**: per-text-channel role override. **Known-chats persistence**: every inbound message writes `(channel, chat_id)` to `workspace/.known_chats.json`. **Update 2026-02-22 (Memory Isolation)**: These known-chats now route their active context explicitly to `workspace/memory/projects/ch_{channel}_{chat_id}/` to ensure separate project scoping without goldfish memory. System prompt reads all active channel scopes into context.
 - [x] **SB.3**: Session resumption check — dynamic tracking in `loop.py` to inject `"SYSTEM SECURITY OVERRIDE"` on the first message of a loaded session, forcing Queen to summarize and halt unapproved tools.
 - [x] **SB.4**: Skill first-run approval gate — script files running in workspace via host exec are intercepted in `gate.py`. *(Note 2026-02-21: Logic flaw discovered where workspace constraint short-circuits the script check. Fix deferred until S4 Worker architecture solidifies Docker vs Host exec boundaries.)*
 - [x] PY.1 `SecretStr` on all credential fields in `hive/config/schema.py` ← can run parallel, ~30 min
@@ -419,15 +427,15 @@ After `queen-alpha_SB_security_boundaries` tag:
 
 ---
 
-## Next step (after SB): S4 — Hive Manager
+## S4 — Hive Manager (Complete)
 
 Build stages:
 
-- [ ] **S4.1**: `WorkerLoop` — `AgentLoop` subclass with restricted tool set (no exec/spawn/message), `max_iterations` cap (hard), `completion_callback`, `progress_callback`. Worker registry write on start/complete/fail.
-- [ ] **S4.2**: `spawn` tool — Queen creates a named background worker. Captures session_id + channel at spawn time. Returns immediately. Enforces concurrency cap.
-- [ ] **S4.3**: Completion notification path — `completion_callback` → `bus.publish()` → Telegram. Failure notification includes step trace.
-- [ ] **S4.4**: `workers` status tool + `kill_worker` tool. Queen can list and terminate.
-- [ ] **S4.5**: Config: `maxWorkers` (default 3), worker tool allowlist. Gate: concurrency cap enforced, no zombie workers, all 257+ tests green.
+- [x] **S4.1**: `WorkerLoop` — `AgentLoop` subclass with restricted tool set (no exec/spawn/message), `max_iterations` cap (hard), `completion_callback`, `progress_callback`. Worker registry write on start/complete/fail.
+- [x] **S4.2**: `spawn` tool — Queen creates a named background worker. Captures session_id + channel at spawn time. Returns immediately. Enforces concurrency cap.
+- [x] **S4.3**: Completion notification path — `completion_callback` → `bus.publish()` → Telegram. Failure notification includes step trace.
+- [x] **S4.4**: `workers` status tool + `kill_worker` tool. Queen can list and terminate.
+- [x] **S4.5**: Config: `maxWorkers` (default 3), worker tool allowlist. Gate: concurrency cap enforced, no zombie workers, all 479+ tests green.
 
 Gate tag: `queen-alpha_S4_hive_manager`
 
