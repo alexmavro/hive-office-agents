@@ -16,7 +16,6 @@ Valid categories:
   write    — write_file/edit_file outside workspace
   git      — git push, git reset, git checkout --
   packages — pip install, apt install (host-level)
-  spawn    — spawning S4 workers
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ from hive.agent.tools.base import Tool
 if TYPE_CHECKING:
     from hive.agent.tools.registry import ToolRegistry
 
-_VALID_CATEGORIES = {"exec", "write", "git", "packages", "spawn"}
+_VALID_CATEGORIES = {"exec", "write", "git", "packages"}
 
 
 class SessionApproveTool(Tool):
@@ -52,7 +51,7 @@ class SessionApproveTool(Tool):
             "This approval ONLY lasts for the duration of the current task/plan (until you finish processing this request). "
             "Call this ONLY when the user has explicitly approved a category of actions — "
             "never call it speculatively or to unblock your own requests without user consent. "
-            "Valid categories: exec, write, git, packages, spawn."
+            "Valid categories: exec, write, git, packages."
         )
 
     @property

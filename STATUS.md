@@ -11,6 +11,7 @@
 - [x] **S4.3**: `spawn` & `spawn_pipeline` tools — Queen passes Pydantic DMZ config down to registry; pipeline strings tasks sequentially.
 - [x] **S4.4**: `workers` tool — Queen lists background worker uptimes and recent completion reports.
 - [x] **S4.5**: Bus Event Injection — Re-routed pipeline start/end messaging directly into the event bus for immediate Discord/Telegram notification.
+- [x] **S4.6**: Core Loop Mechanics Integration — `WorkerLoop` execution loop brought up to parity with `AgentLoop` using `ContextBuilder`. End-to-end tests passing.
 
 ## SB Checklist
 
@@ -96,6 +97,7 @@ Observed from live Telegram testing (2026-02-19). Partially fixed, partially def
 - Voice messages causing context loss → OGG file passed raw to LLM → "Yes to what?" loop. Fixed: audio files now intercepted with graceful fallback mission.
 - Language not switching automatically → Fixed: SOUL.md rule added, plus language preference save flow.
 - `/factory_reset` visible in Telegram command menu → Fixed: removed from BOT_COMMANDS.
+- Crash loop due to invalid Discord role → Fixed: changed invalid `"ignore"` role to valid `"notification"` role in `config.json`.
 
 **Deferred — revisit after S3:**
 - Factory reset broken in chat: confirmation phrase recognized but LLM refuses to execute it. Admin-only for now, will rethink flow later.

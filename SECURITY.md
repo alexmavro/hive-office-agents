@@ -76,15 +76,15 @@ on host; `apt install`/`apt remove`/`dpkg`; `git push`/`git push --force`;
 **Code on host:** running any skill script file for the first time; `exec` running a `.py`,
 `.sh`, or `.js` file written this session.
 
-**Workers (S4):** spawning any new worker; promoting a Temp to Consort; changing worker tool
-permissions.
+**Code on host:** running any skill script file for the first time; `exec` running a `.py`,
+`.sh`, or `.js` file written this session.
 
 ### Tier 2 — Free (no approval needed)
 
 **Always free:** `read_file`, `list_dir`, `web_search`, `web_fetch` (SSRF-validated, content
 tagged `[DATA]`), `message` to any channel, all `docker_exec` (any code, any SHA — the Docker
 sandbox IS the approval mechanism), exec read-only commands (`ls`, `ps`, `df`, `cat`, `grep`,
-`git status`, `git log`, `git diff`, `top -bn1`, `docker ps`, etc.).
+`git status`, `git log`, `git diff`, `top -bn1`, `docker ps`, etc.), all worker spawning and management (`spawn`, `spawn_pipeline`, `workers`).
 
 **Free after session-level "go":** `write_file` within `~/.hive/workspace/`; `edit_file`
 within workspace; `pip install` inside a Docker container; local git operations (`git add`,

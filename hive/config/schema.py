@@ -197,9 +197,17 @@ class AgentDefaults(BaseModel):
     memory_window: int = Field(50, ge=1, le=10000)
 
 
+class WorkersConfig(BaseModel):
+    """Worker sub-agent configuration."""
+    model_config = ConfigDict(extra='forbid')
+    max_active_workers: int = Field(5, ge=1, le=20)
+    max_worker_iterations: int = Field(15, ge=1, le=50)
+
+
 class AgentsConfig(BaseModel):
     """Agent configuration."""
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+    workers: WorkersConfig = Field(default_factory=WorkersConfig)
 
 
 class ProviderConfig(BaseModel):

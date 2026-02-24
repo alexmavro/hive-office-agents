@@ -507,8 +507,8 @@ def test_edit_file_outside_workspace_is_tier1(tmp_path: Path):
     assert _tool_tier("edit_file", {"path": "/root/important.md"}, workspace=workspace) == Tier.ONE
 
 
-def test_spawn_is_tier1():
-    assert _tool_tier("spawn", {"task": "do something"}) == Tier.ONE
+def test_spawn_is_tier2():
+    assert _tool_tier("spawn", {"worker_name": "test_worker", "task": "analyze log file for errors"}) == Tier.TWO
 
 
 def test_cron_is_tier1():
@@ -549,11 +549,6 @@ def test_tier1_pip_install_has_packages_category():
     assert d.tier == Tier.ONE
     assert d.category == "packages"
 
-
-def test_tier1_spawn_has_spawn_category():
-    d = classify_tool("spawn", {"task": "work"})
-    assert d.tier == Tier.ONE
-    assert d.category == "spawn"
 
 
 # ---------------------------------------------------------------------------

@@ -68,17 +68,17 @@ class SpawnTool(Tool):
             return "Error: WorkerRegistry is not available in this environment."
             
         def loop_factory() -> WorkerLoop:
-            from hive.cli.gateway import HiveGateway
-            gw = HiveGateway()
+            kwargs = self.worker_registry._loop_kwargs
             return WorkerLoop(
-                bus=gw.bus,
-                provider=gw.provider,
-                workspace=gw.config.workspace_path,
-                model=gw.config.agents.defaults.model,
-                max_iterations=gw.config.agents.workers.max_worker_iterations,
-                temperature=gw.config.agents.defaults.temperature,
-                max_tokens=gw.config.agents.defaults.max_tokens,
-                audit=gw.audit,
+                bus=kwargs["bus"],
+                provider=kwargs["provider"],
+                workspace=kwargs["workspace"],
+                model=model or kwargs["model"],
+                fallbacks=kwargs.get("fallbacks", []),
+                max_iterations=self.worker_registry.config.agents.workers.max_worker_iterations,
+                temperature=kwargs["temperature"],
+                max_tokens=kwargs["max_tokens"],
+                audit=kwargs["audit"],
             )
 
         order = WorkerOrder(name=worker_name, task=task, model=model)
@@ -170,19 +170,18 @@ class SpawnPipelineTool(Tool):
         if len(tasks) < 2:
             return "Error: A pipeline must have at least 2 tasks."
 
-        # Define loop factory (same as single worker)
-        def loop_factory() -> WorkerLoop:
-            from hive.cli.gateway import HiveGateway
-            gw = HiveGateway()
+        def loop_factory(model_override: str | None = None) -> WorkerLoop:
+            kwargs = self.worker_registry._loop_kwargs
             return WorkerLoop(
-                bus=gw.bus,
-                provider=gw.provider,
-                workspace=gw.config.workspace_path,
-                model=gw.config.agents.defaults.model,
-                max_iterations=gw.config.agents.workers.max_worker_iterations,
-                temperature=gw.config.agents.defaults.temperature,
-                max_tokens=gw.config.agents.defaults.max_tokens,
-                audit=gw.audit,
+                bus=kwargs["bus"],
+                provider=kwargs["provider"],
+                workspace=kwargs["workspace"],
+                model=model_override or kwargs["model"],
+                fallbacks=kwargs.get("fallbacks", []),
+                max_iterations=self.worker_registry.config.agents.workers.max_worker_iterations,
+                temperature=kwargs["temperature"],
+                max_tokens=kwargs["max_tokens"],
+                audit=kwargs["audit"],
             )
 
         # We don't await the whole pipeline here, we launch a background orchestrator coroutine
@@ -212,7 +211,7 @@ class SpawnPipelineTool(Tool):
                 # pipeline steps use their own model overrides, so we create a fresh factory
                 report = await self.worker_registry.spawn_worker(
                     order=order,
-                    loop_factory=lambda: loop_factory(model),
+                    loop_factory=lambda m=model: loop_factory(m),
                     on_complete=None  # We handle the bus messages manually for pipelines
                 )
                 

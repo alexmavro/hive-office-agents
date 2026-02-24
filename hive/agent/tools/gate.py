@@ -271,6 +271,7 @@ def classify_tool(
     if name in {
         "read_file", "list_dir", "web_search", "web_fetch",
         "message", "report_task", "session_approve",
+        "spawn", "spawn_pipeline", "workers"
     }:
         return GateDecision(Tier.TWO, "always free")
 
@@ -297,10 +298,6 @@ def classify_tool(
         if workspace and _within_workspace(path, workspace):
             return GateDecision(Tier.TWO, "edit_file within workspace")
         return GateDecision(Tier.ONE, f"edit_file outside workspace: {path!r}", "write")
-
-    # spawn: always Tier 1 (S4 worker spawning)
-    if name == "spawn":
-        return GateDecision(Tier.ONE, "spawning a worker (S4)", "spawn")
 
     # cron: always Tier 1
     if name == "cron":

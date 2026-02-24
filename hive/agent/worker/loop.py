@@ -10,6 +10,7 @@ from typing import Any
 import asyncio
 import traceback
 
+import json
 from pydantic import ValidationError
 
 from hive.agent.loop import AgentLoop
@@ -50,7 +51,7 @@ class WorkerLoop(AgentLoop):
         self.tools._session_id = self._session_id
         
         # Insert the task as a user message
-        session.append_message("user", order.task)
+        session.add_message("user", order.task)
         self._step_trace.append(f"**Task Initiated:** {order.task}")
 
         iterations = 0
@@ -60,69 +61,100 @@ class WorkerLoop(AgentLoop):
         token_usage_total = 0
         
         try:
+            # Build initial context with the task
+            messages = self.context.build_messages(
+                history=session.get_history(max_messages=self.memory_window),
+                current_message=None,
+                channel="worker",
+                chat_id=self._session_id,
+            )
+            
             while iterations < self.max_iterations:
                 iterations += 1
-                messages = await self._build_messages(session, channel="worker")
                 
                 # Model swap support from WorkerOrder
                 model_to_use = order.model or self.model
                 
-                response = await self.provider.complete(
+                response = await self.provider.chat(
                     messages=messages,
                     model=model_to_use,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
-                    tools=[t.schema for t in self.tools._tools.values()],
-                    session_id=self._session_id,
+                    tools=self.tools.get_definitions(),
                 )
                 
                 if getattr(response, "usage", None):
                     token_usage_total += response.usage.get("prompt_tokens", 0) + response.usage.get("completion_tokens", 0)
                 
                 if response.content:
-                    session.append_message("assistant", response.content)
-                    # We log the thought process to the trace
+                    session.add_message("assistant", response.content)
                     self._step_trace.append(f"**Thought:** {response.content.strip()[:200]}...")
 
                 if not response.tool_calls:
-                    # The worker has concluded its work without calling tools.
-                    # We treat its final conversational output as the deliverable.
+                    # Concluded without calling tools (final deliverable)
                     final_output = response.content
                     status = WorkerStatus.COMPLETED
                     break
                     
-                # Handle tool calls
-                session.append_message(
-                    "assistant",
-                    "",  # The tool call message itself
-                    tool_calls=[tc.model_dump() for tc in response.tool_calls]
+                # We have tools to execute. First, log the assistant message to the context window.
+                tool_call_dicts = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments)
+                        }
+                    }
+                    for tc in response.tool_calls
+                ]
+                messages = self.context.add_assistant_message(
+                    messages, response.content, tool_call_dicts,
+                    reasoning_content=getattr(response, "reasoning_content", None)
                 )
                 
+                # Also commit to the persistent DAG session
+                session.add_message(
+                    "assistant",
+                    response.content or "",
+                    tools_used=[tc.model_dump() for tc in response.tool_calls]
+                )
+                
+                # Execute tools sequentially
                 for tc in response.tool_calls:
-                    self._step_trace.append(f"**Tool Call:** `{tc.name}({tc.arguments})`")
+                    args_str = json.dumps(tc.arguments, ensure_ascii=False)
+                    self._step_trace.append(f"**Tool Call:** `{tc.name}({args_str})`")
+                    
                     result = await self.tools.execute(tc.name, tc.arguments)
-                    session.append_message("tool", str(result), name=tc.name, tool_call_id=tc.id)
-            
+                    
+                    # Update local context window
+                    messages = self.context.add_tool_result(
+                        messages, tc.id, tc.name, str(result)
+                    )
+                    # Update persistent session
+                    session.add_message("tool", str(result), name=tc.name, tool_call_id=tc.id)
+                    
             else:
-                # Max iterations hit (While loop else-clause triggers if no break occurred)
-                # Graceful degradation (provide_final_answer pattern)
+                # Max iterations hit gracefully
                 status = WorkerStatus.FAILED
                 error_msg = f"Worker reached maximum iterations ({self.max_iterations})."
                 self._step_trace.append(f"**Error:** {error_msg}")
                 
-                # Do a forced synthesis
-                session.append_message("user", "You have run out of time (max loop iterations). You MUST summarize what you've found so far immediately, without using any more tools.")
-                messages = await self._build_messages(session, channel="worker")
-                synthesis = await self.provider.complete(
+                # Forced synthesis
+                timeout_msg = "You have run out of time (max loop iterations). You MUST summarize what you've found so far immediately, without using any more tools."
+                session.add_message("user", timeout_msg)
+                messages.append({"role": "user", "content": timeout_msg})
+                
+                synthesis = await self.provider.chat(
                     messages=messages,
                     model=model_to_use,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
-                    session_id=self._session_id,
                 )
                 
                 if synthesis.content:
                     final_output = f"[PARTIAL/TIMEOUT SYNTHESIS]\n{synthesis.content}"
+                    session.add_message("assistant", final_output)
                     
         except Exception as e:
             status = WorkerStatus.FAILED
