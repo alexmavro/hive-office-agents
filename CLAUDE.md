@@ -261,9 +261,9 @@ S7 (emission stream) <-- last, needs everything stable
 | **S3** | Docker executor (sandboxed Python execution, AST filter) | **COMPLETE** — 257 tests, tag `queen-alpha_S3_docker_executor` |
 | **SA** | Audit layer (structured JSONL logging, retention, daily reports) | **COMPLETE** — parallel track, 289 tests, commits b3e57f6–123b429. See STATUS.md SA section. |
 | **SB** | Security Boundaries (ToolRegistry approval gate, channel roles, session resumption, skill first-run gate) | **IN PROGRESS** — SB.1 (tiered gate) + SB.2 (channel roles, Discord routing, known-chats) complete. SB.3 (session resumption) + SB.4 (skill gate) remain. 473 tests. See STATUS.md. |
-| **S4** | Hive manager (worker spawning, registry, notification) | **NOT STARTED** — spec complete. Starts only after SB.1 is live. See STATUS.md. |
-| **S5** | Skill forge (Queen creates her own tools) | Not started. Can parallel S3/S4. |
-| **S6** | Safety rails (circuit breaker, budget gate, depth limits) | Not started. Depends on S1. |
+| **S4** | Hive manager (worker spawning, registry, notification) | **COMPLETE** — gate tag `queen-alpha_S4_hive_manager` |
+| **S5.1** | Skill forge (Queen creates and packages her own tools) | **COMPLETE** — `forge_skill` tool and CLI utilities implemented. (S5.5 smolagents deferred) |
+| **S6** | Safety rails (token tracking, budget gates, circuit breakers, emergency controls) | **PLANNING** — Critical blocker for autonomous operation (heartbeats/cron). |
 | **S7** | Emission stream (WebSocket live observation) | Not started. Last step. |
 
 ### Model Strategy
