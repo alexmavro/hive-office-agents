@@ -64,9 +64,27 @@ As a security-aware project manager, you must follow this exact sequence for eve
 - **Tool Context Flow:** Any background worker spawned (e.g., `SpawnTool`) inherits the active Project context rather than isolating by channel, ensuring subordinates contribute to the shared architectural goal.
 - **Future Functionality — Worker-Team Channel Routing:** Soon, we will allow explicit worker-teams or Hive-Specialists to interact with their respective explicit Discord channels. This prevents the Queen from acting as an annoying intermediary for everything, saving her resources for high-level management rather than message-passing.
 
+### Test Environment & Pytest Execution
+- **The Global Path Blank:** `pytest` is NOT installed globally on the VPS. 
+- **DO NOT run:** `pytest tests/` or `python3 -m pytest tests/` or `uv run pytest tests/`. These will fail with "Command not found" or "No module named pytest".
+- **The Fix:** ALWAYS run tests using the explicit virtual environment path: `./.venv/bin/pytest tests/...`. If you forget this, you will waste 3-4 turns fighting the shell.
+
+### E2E Test Suite & API Costs
+- **The Cost of E2E:** Our integration test suite (`tests/` containing `AgentLoop` tests) actually hits the LLM provider API (OpenRouter/Gemini). This costs real money and tokens.
+- **When to Run:** DO NOT run the full E2E test suite on every single small iterative change. We only run the E2E test suite when we reach a **milestone debugging phase** or when Alex explicitly asks for it. 
+- **The "Unbuilt Bridge" Problem:** E2E suites are highly sensitive. They will often fail because they hit "yet unbuilt bridges" (e.g., a missing config flag we plan to add in the next step). Running them too early causes false-alarms for incomplete milestones. Stick to targeted unit tests (where possible) or manual verification until the milestone is complete.
+
 ### Data Obfuscation (PY.1)
 - **Token Masking:** Any credential field loaded into memory MUST be cast as a `pydantic.SecretStr` in `schema.py`. Using plain strings leaks raw API keys into log files or crash traces trivially. Always invoke `.get_secret_value()` at the last possible execution jump.
 
 ### Worker Delegation (S4) & Pydantic DMZs
 - We rejected smolagents' AST Python executor and their sync loops. Our `WorkerLoop` is completely asynchronous, uses `provide_final_answer` grace exits on threshold limits, and executes untrusted code remotely in a controlled `docker_exec`. 
 - **The Pydantic DMZ:** The boundary between the Queen and her subordinate Workers is secured by `WorkerOrder` and `WorkerReport` pydantic schemas. Prompt-injected content scraped externally by a worker cannot mutate into a system instruction; it is forcefully serialized into bounded fields before it is allowed back into the Queen's thought process.
+
+### Skill Forge & Permanence (S5)
+- **Separation of Concerns:** We explicitly separated the concept of *Code Generation* from *Skill Packaging*. For S5, the blocker was that the Queen had no way to make her solutions permanent. 
+- **The Packaging Layer:** We built the `forge_skill` tool and CLI utilities to strictly enforce `SKILL.md` YAML frontmatter and directory structures (`~/.hive/workspace/skills/`). This solved the permanence issue without over-engineering.
+- **smolagents Deferral (S5.5+):** 
+  - While `smolagents` (the HuggingFace framework) is recognized as the ultimate engine for autonomous "Python Dev" workers that "think in code" rather than JSON tool calls, it was intentionally deferred. 
+  - Why? Because the Queen can already generate code using existing workers and `docker_exec`. Tacking on a massive framework dependency during S5 would have conflated structural packaging with code generation methodology. 
+  - **Future integration rule:** If/when `smolagents` is integrated, it must be deployed strictly as a *specialized worker type* connected to our `DockerSandbox`, not as a replacement for the core `WorkerLoop` or the `AgentLoop`.

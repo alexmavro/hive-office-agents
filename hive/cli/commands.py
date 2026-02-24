@@ -20,6 +20,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from hive import __version__, __logo__
 from hive.config.schema import Config
+from hive.cli.skill_utils import skill
 
 app = typer.Typer(
     name="hive",
@@ -1015,6 +1016,8 @@ def status():
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
 
 
+
+app.add_typer(skill, name="skill")
 
 if __name__ == "__main__":
     app()

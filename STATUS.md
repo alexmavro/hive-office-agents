@@ -158,6 +158,23 @@ NOT taking from smolagents:
 - Sync blocking architecture — we're async
 - Hub serialisation, Gradio UI — irrelevant
 
+### S5 Architecture Decisions (2026-02-24)
+
+**The Separable Concerns: Generation vs. Packaging**
+- **Code Generation:** The Queen already has workers with `docker_exec` that can write and test code.
+- **Skill Packaging:** S5 focuses purely on the packaging layer (`forge_skill` tool). The Queen needs a strict, automated way to convert a working script into a properly formatted `SKILL.md` (with YAML frontmatter) inside `~/.hive/workspace/skills/`.
+
+**Smolagents Integration Deferred (S5.5+)**
+- While the vision outlines a "Python Dev" worker powered by `smolagents` that "thinks in code", this was deferred from the core S5 deliverable.
+- Including it now would conflate code generation methodology with skill permanence, risking an over-engineered S4 repeat.
+- Minimum viable S5: the `forge_skill` tool to unblock the Queen from permanently saving the capabilities she discovers.
+
+### S5.1 Skill Forge Core (Complete)
+
+- [x] **`SkillForgeTool` (`forge.py`)**: Tier 2 tool registered in `AgentLoop`. Validates kebab-case names, scaffolds `scripts/` and `references/` subdirectories, and strictly enforces YAML frontmatter inside `SKILL.md`. Prevents blind overwrites.
+- [x] **CLI Utilities (`skill_utils.py`)**: Human parity scripts (`hive skill init <name>` and `hive skill package <name>`) to create and zip distributable `.skill` files locally.
+- [x] **Verification tests**: `test_skill_cli.py` and E2E LLM simulation in `test_e2e_skill_forge.py` all passing.
+
 ### Worker design decisions (Alex + session 2026-02-19)
 
 **1. What a worker IS**

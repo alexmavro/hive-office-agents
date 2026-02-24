@@ -25,6 +25,7 @@ from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.tools.docker_exec import DockerExecTool
 from hive.agent.tools.session_approve import SessionApproveTool
+from hive.agent.tools.forge import SkillForgeTool
 from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt, get_link_intake_prompt
@@ -170,6 +171,9 @@ class AgentLoop:
 
         # SB.1: session pre-approval tool (Tier 2 — allows LLM to unlock Tier 1 after user consent)
         self.tools.register(SessionApproveTool(registry=self.tools))
+
+        # S5: skill forge
+        self.tools.register(SkillForgeTool(workspace=self.workspace))
 
         # Docker sandbox — only if image is built
         if DockerExecTool.is_available():
