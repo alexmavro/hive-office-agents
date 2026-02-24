@@ -527,6 +527,8 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         audit=_audit,
+        daily_usd_budget=config.agents.defaults.daily_usd_budget,
+        worker_usd_limit=config.agents.workers.worker_usd_limit,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on

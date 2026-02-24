@@ -79,6 +79,8 @@ class SpawnTool(Tool):
                 temperature=kwargs["temperature"],
                 max_tokens=kwargs["max_tokens"],
                 audit=kwargs["audit"],
+                daily_usd_budget=kwargs.get("daily_usd_budget", 10.0),
+                worker_usd_limit=kwargs.get("worker_usd_limit", 0.50),
             )
 
         order = WorkerOrder(name=worker_name, task=task, model=model)
@@ -182,6 +184,8 @@ class SpawnPipelineTool(Tool):
                 temperature=kwargs["temperature"],
                 max_tokens=kwargs["max_tokens"],
                 audit=kwargs["audit"],
+                daily_usd_budget=kwargs.get("daily_usd_budget", 10.0),
+                worker_usd_limit=kwargs.get("worker_usd_limit", 0.50),
             )
 
         # We don't await the whole pipeline here, we launch a background orchestrator coroutine

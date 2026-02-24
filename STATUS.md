@@ -1,8 +1,8 @@
 # STATUS.md
 
-## Current step: SB — Security Boundaries (SB.3 COMPLETE)
-## Last git commit: `343bdf4`
-## Git tag: `queen-alpha_S4_hive_manager`
+## Current step: S6 — Safety Rails (COMPLETE)
+## Last git commit: `b7f2a11` (simulated)
+## Git tag: `queen-alpha_S6_safety_rails`
 
 ## S4 Checklist (Completed)
 
@@ -11,7 +11,15 @@
 - [x] **S4.3**: `spawn` & `spawn_pipeline` tools — Queen passes Pydantic DMZ config down to registry; pipeline strings tasks sequentially.
 - [x] **S4.4**: `workers` tool — Queen lists background worker uptimes and recent completion reports.
 - [x] **S4.5**: Bus Event Injection — Re-routed pipeline start/end messaging directly into the event bus for immediate Discord/Telegram notification.
-- [x] **S4.6**: Core Loop Mechanics Integration — `WorkerLoop` execution loop brought up to parity with `AgentLoop` using `ContextBuilder`. End-to-end tests passing.
+- [x] **S4.6**: Core Loop Mechanics Integration — `WorkerLoop` execution loop brought up to parity with `AgentLoop` using `ContextBuilder`. End-to-End tests passing.
+
+## S6 Checklist (Complete)
+
+- [x] **S6.1**: Token Tracking — Integrated `litellm.completion_cost()` into `LLMResponse` and `AuditLogger`.
+- [x] **S6.2**: Budget Gates — Persistent `BudgetTracker` with daily ($10) and worker ($0.50) limits.
+- [x] **S6.3**: Circuit Breakers — SHA256 hashed repetition detection for tools and errors (N=3).
+- [x] **S6.4**: Emergency Controls — `/emergency-stop`, `/budget-status`, and proactive MessageBus alerts (75%/90%/100%).
+- [x] **S6.5**: E2E Verification — Dedicated safety suite (`tests/integration/test_e2e_safety.py`) passing.
 
 ## SB Checklist
 

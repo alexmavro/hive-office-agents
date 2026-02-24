@@ -138,6 +138,34 @@ The routes only affect inbound trust classification and notification-channel dro
 
 ---
 
+## Safety Rails & Cost Control (S6 — IMPLEMENTED)
+
+S6 adds deterministic safeguards to prevent "runaway" agent behavior, focusing on fiscal and stability risks.
+
+### S6.1 Token & Cost Tracking
+All LLM response objects pass through `litellm.completion_cost()`. 
+- Actual USD cost is recorded in the `AuditLogger`.
+- Reports prioritize actual tracked cost over internal estimates.
+
+### S6.2 Budget Gates (Enforcement)
+A persistent `BudgetTracker` manages daily and per-run USD limits.
+- **Global Daily Budget**: Default $10.00 USD.
+- **Worker Run Limit**: Default $0.50 USD.
+- The gate intercepts execution *before* the LLM is called. If the budget is exhausted, the loop halts immediately with a `[SYSTEM HALT]` message.
+
+### S6.3 Circuit Breakers (Stability)
+Detects and prevents infinite loops or recursive crashes.
+- **Action Loop Detection**: Hashes `(tool_name, arguments)`. Trips if the exact same tool call is repeated 3 times sequentially.
+- **Error Loop Detection**: Hashes error strings. Trips if an identical error occurs 3 times sequentially.
+- When tripped, the breaker forcefully returns control to the Queen for final synthesis, preventing further iterations.
+
+### S6.4 Emergency Controls (Admin Overrides)
+- `/emergency-stop`: Instantly cancels all active background workers.
+- `/budget-status`: Displays current daily spend and utilization percentage.
+- **Proactive Alerts**: System-wide notifications are published to the `notification` channel when 75%, 90%, or 100% of the daily budget is consumed.
+
+---
+
 ## Known-Source Security Layer (SB.2d — planned, SB.3 candidate)
 
 **Design insight (2026-02-21):** `_known_chats.json` (runtime persistence of `channel:chat_id`

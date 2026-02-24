@@ -195,6 +195,7 @@ class AgentDefaults(BaseModel):
     fallbacks: list[str] = Field(default_factory=list)
     max_tool_iterations: int = Field(20, ge=1, le=200)
     memory_window: int = Field(50, ge=1, le=10000)
+    daily_usd_budget: float = Field(10.0, ge=0.0, description="Global daily USD budget for all LLM calls")
 
 
 class WorkersConfig(BaseModel):
@@ -202,6 +203,7 @@ class WorkersConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
     max_active_workers: int = Field(5, ge=1, le=20)
     max_worker_iterations: int = Field(15, ge=1, le=50)
+    worker_usd_limit: float = Field(0.50, ge=0.0, description="Max USD budget per individual worker run")
 
 
 class AgentsConfig(BaseModel):

@@ -136,6 +136,7 @@ class AuditLogger:
         tokens_out: int,
         tool_calls_n: int,
         duration_ms: float,
+        cost_usd: float = 0.0,
         tool_names: list[str] | None = None,
         session_id: str | None = None,
         error: str | None = None,
@@ -159,6 +160,7 @@ class AuditLogger:
             "tokens_out": tokens_out,
             "tool_calls_n": tool_calls_n,
             "duration_ms": round(duration_ms, 1),
+            "cost_usd": cost_usd,
         }
         if session_id is not None:
             event["session_id"] = session_id

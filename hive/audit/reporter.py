@@ -167,12 +167,18 @@ def _build_report(date_str: str, events: list[dict[str, Any]]) -> str:
         total_in = sum(e.get("tokens_in", 0) for e in llm_events)
         total_out = sum(e.get("tokens_out", 0) for e in llm_events)
         total_ms = sum(e.get("duration_ms", 0.0) for e in llm_events)
+        total_cost_usd = sum(e.get("cost_usd", 0.0) for e in llm_events)
         anomaly_count = sum(1 for e in llm_events if e.get("anomalies"))
         models_seen = {e.get("model", "unknown") for e in llm_events}
 
-        # Cost estimate — use first model found for simplicity
-        first_model = next(iter(models_seen), "unknown")
-        est_cost = _estimate_cost(first_model, total_in, total_out)
+        # Cost estimate — use exact tracked cost if > 0, else fallback to estimation table
+        if total_cost_usd > 0:
+            est_cost = total_cost_usd
+            cost_note = ""
+        else:
+            first_model = next(iter(models_seen), "unknown")
+            est_cost = _estimate_cost(first_model, total_in, total_out)
+            cost_note = " _(rough estimate only)_"
 
         lines.append("## LLM Calls")
         lines.append("")
@@ -182,7 +188,7 @@ def _build_report(date_str: str, events: list[dict[str, Any]]) -> str:
         lines.append(f"- **Total tokens out:** {total_out:,}")
         lines.append(f"- **Total duration:** {total_ms / 1000:.1f}s")
         if est_cost > 0:
-            lines.append(f"- **Estimated cost:** ${est_cost:.4f} USD _(rough estimate only)_")
+            lines.append(f"- **Total cost:** ${est_cost:.4f} USD{cost_note}")
         if anomaly_count:
             lines.append(f"- **Anomalies flagged:** {anomaly_count}")
         lines.append("")

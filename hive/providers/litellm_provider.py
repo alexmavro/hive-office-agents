@@ -6,7 +6,7 @@ import os
 from typing import Any
 
 import litellm
-from litellm import acompletion
+from litellm import acompletion, completion_cost
 
 from hive.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from hive.providers.registry import find_by_model, find_gateway
@@ -190,12 +190,19 @@ class LiteLLMProvider(LLMProvider):
                 ))
         
         usage = {}
+        cost_usd = 0.0
         if hasattr(response, "usage") and response.usage:
             usage = {
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             }
+            try:
+                # Calculate standardized USD cost if litellm knows the model pricing
+                cost = completion_cost(completion_response=response)
+                cost_usd = float(cost) if cost else 0.0
+            except Exception:
+                pass
         
         reasoning_content = getattr(message, "reasoning_content", None)
         
@@ -204,6 +211,7 @@ class LiteLLMProvider(LLMProvider):
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason or "stop",
             usage=usage,
+            cost_usd=cost_usd,
             reasoning_content=reasoning_content,
         )
     

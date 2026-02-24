@@ -15,7 +15,7 @@ Not "OpenClaw but Python." What OpenClaw should have been:
 - **Security-first**: AST filter + Docker isolation. OpenClaw has a known RCE (Feb 2026). We don't.
 - **Quality over volume**: 10 battle-tested skills > 1,700 unvetted. Queen writes her own.
 - **3 channels that work perfectly** > 15 that sort-of work (Discord, Telegram, CLI — more soon)
-- **Cost control built-in**: token budget gate, circuit breaker. No surprise bills.
+- **Safety Rails (S6)**: Token tracking, USD budget gates ($10 daily), and SHA256 circuit breakers. No surprise bills.
 - **Modular and packageable**: each layer is independently deployable and replaceable.
 
 Strategy: Phase 1 = match OpenClaw core (S0-S7). Phase 2 = exceed on workflows (5 that solve real problems completely). Phase 3 = open the tool format. Phase 4 = network effects.

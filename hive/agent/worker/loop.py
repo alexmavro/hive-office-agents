@@ -61,6 +61,9 @@ class WorkerLoop(AgentLoop):
         token_usage_total = 0
         
         try:
+            from hive.agent.circuit_breaker import CircuitBreaker
+            breaker = CircuitBreaker()
+            
             # Build initial context with the task
             messages = self.context.build_messages(
                 history=session.get_history(max_messages=self.memory_window),
@@ -122,10 +125,36 @@ class WorkerLoop(AgentLoop):
                 
                 # Execute tools sequentially
                 for tc in response.tool_calls:
+                    is_ok, reason = breaker.check_action(tc.name, tc.arguments)
+                    if not is_ok:
+                        self._step_trace.append(f"**Error:** {reason}")
+                        logger.warning(reason)
+                        return WorkerReport(
+                            worker_name=order.name,
+                            status=WorkerStatus.FAILED,
+                            output=f"[SYSTEM ABORT: CIRCUIT BREAKER]\n{reason}",
+                            error=reason,
+                            step_summary="\n".join(self._step_trace),
+                            token_usage_total=token_usage_total
+                        )
+
                     args_str = json.dumps(tc.arguments, ensure_ascii=False)
                     self._step_trace.append(f"**Tool Call:** `{tc.name}({args_str})`")
                     
                     result = await self.tools.execute(tc.name, tc.arguments)
+                    
+                    is_ok, reason = breaker.check_result(result)
+                    if not is_ok:
+                        self._step_trace.append(f"**Error:** {reason}")
+                        logger.warning(reason)
+                        return WorkerReport(
+                            worker_name=order.name,
+                            status=WorkerStatus.FAILED,
+                            output=f"[SYSTEM ABORT: CIRCUIT BREAKER]\n{reason}",
+                            error=reason,
+                            step_summary="\n".join(self._step_trace),
+                            token_usage_total=token_usage_total
+                        )
                     
                     # Update local context window
                     messages = self.context.add_tool_result(

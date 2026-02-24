@@ -16,6 +16,7 @@ from hive.bus.queue import MessageBus
 from hive.providers.base import LLMProvider
 from hive.agent.context import ContextBuilder
 from hive.agent.tools.registry import ToolRegistry
+from hive.agent.budget import BudgetTracker
 from hive.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from hive.agent.tools.shell import ExecTool
 from hive.agent.tools.web import WebSearchTool, WebFetchTool
@@ -82,6 +83,8 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         audit: "AuditLogger | None" = None,
         worker_registry: "WorkerRegistry | None" = None,
+        daily_usd_budget: float = 10.0,
+        worker_usd_limit: float = 0.50,
     ):
         from hive.config.schema import ExecToolConfig
         from hive.cron.service import CronService
@@ -109,6 +112,9 @@ class AgentLoop:
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry(audit=audit, workspace=workspace)
         self.worker_registry = worker_registry
+        
+        self.budget_tracker = BudgetTracker(workspace, daily_limit=daily_usd_budget)
+        self.worker_usd_limit = worker_usd_limit
         
         self._running = False
         self._mcp_servers = mcp_servers or {}
@@ -156,7 +162,9 @@ class AgentLoop:
                 fallbacks=self.fallbacks,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                audit=self._audit
+                audit=self._audit,
+                daily_usd_budget=self.budget_tracker.daily_limit,
+                worker_usd_limit=self.worker_usd_limit
             )
             self.tools.register(SpawnTool(worker_registry=self.worker_registry))
             self.tools.register(SpawnPipelineTool(worker_registry=self.worker_registry))
@@ -299,6 +307,9 @@ class AgentLoop:
         final_content = None
         tools_used: list[str] = []
 
+        from hive.agent.circuit_breaker import CircuitBreaker
+        breaker = CircuitBreaker()
+
         while iteration < self.max_iterations:
             iteration += 1
 
@@ -306,6 +317,17 @@ class AgentLoop:
             _llm_error: str | None = None
             _llm_usage: dict = {}
             _llm_tool_calls: list = []
+            _llm_cost_usd: float = 0.0
+            
+            # Sub-agent (worker) routing
+            w_id = self.tools._session_id if self.tools._session_id and "worker:" in self.tools._session_id else None
+            w_limit = self.worker_usd_limit if w_id else None
+            is_ok, budget_reason = await self.budget_tracker.check_budget(worker_id=w_id, worker_limit=w_limit)
+            if not is_ok:
+                logger.warning(f"Budget Halt: {budget_reason}")
+                final_content = f"**[SYSTEM HALT: Budget Exceeded]**\n{budget_reason}\nExecution stopped to prevent cost overruns."
+                break
+
             try:
                 response = await self.provider.chat(
                     messages=messages,
@@ -317,6 +339,26 @@ class AgentLoop:
                 )
                 _llm_usage = response.usage or {}
                 _llm_tool_calls = response.tool_calls
+                _llm_cost_usd = getattr(response, "cost_usd", 0.0)
+                
+                if isinstance(_llm_cost_usd, (int, float)) and _llm_cost_usd > 0:
+                    daily_before, _ = await self.budget_tracker.get_usage()
+                    await self.budget_tracker.add_cost(w_id, float(_llm_cost_usd))
+                    daily_after, _ = await self.budget_tracker.get_usage()
+                    
+                    limit = self.budget_tracker.daily_limit
+                    for threshold, label in [(0.75, "75%"), (0.90, "90%"), (1.0, "100%")]:
+                        if daily_before < limit * threshold <= daily_after:
+                            alert = f"⚠️ **BUDGET ALERT:** System has crossed {label} of daily limit (${daily_after:.2f} / ${limit:.2f} USD)."
+                            logger.warning(alert)
+                            # Emit structural network alert
+                            from hive.bus.events import OutboundMessage
+                            await self.bus.publish_outbound(OutboundMessage(
+                                channel="notification",
+                                chat_id="global",
+                                content=alert
+                            ))
+                            break
             except Exception as _exc:
                 _llm_error = str(_exc)[:200]
                 raise
@@ -330,6 +372,7 @@ class AgentLoop:
                         tokens_out=_llm_usage.get("completion_tokens", 0),
                         tool_calls_n=len(_llm_tool_calls),
                         duration_ms=_duration_ms,
+                        cost_usd=_llm_cost_usd,
                         tool_names=_tool_names,
                         session_id=self.tools._session_id,
                         error=_llm_error,
@@ -353,10 +396,23 @@ class AgentLoop:
                 )
 
                 for tool_call in response.tool_calls:
+                    is_ok, reason = breaker.check_action(tool_call.name, tool_call.arguments)
+                    if not is_ok:
+                        logger.warning(reason)
+                        final_content = f"**[SYSTEM HALT: CIRCUIT BREAKER]**\n{reason}\nExecution stopped to prevent infinite loops."
+                        return final_content, tools_used
+
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    
+                    is_ok, reason = breaker.check_result(result)
+                    if not is_ok:
+                        logger.warning(reason)
+                        final_content = f"**[SYSTEM HALT: CIRCUIT BREAKER]**\n{reason}\nExecution stopped to prevent infinite error loops."
+                        return final_content, tools_used
+                        
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -604,6 +660,36 @@ class AgentLoop:
             fresh_session.add_message("assistant", result)
             self.sessions.save(fresh_session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=result)
+
+        if cmd in ("/emergency-stop", "/emergency_stop"):
+            if msg.metadata.get("channel_role") != "admin":
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Error: Only administrators can trigger an emergency stop.")
+            
+            if self.worker_registry:
+                count = self.worker_registry.get_active_count()
+                for name in list(self.worker_registry._active_tasks.keys()):
+                    self.worker_registry.cancel_worker(name)
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content=f"🚨 **[EMERGENCY STOP EXECUTED]** 🚨\nForcefully terminated {count} background workers.")
+            else:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Worker registry is offline; no active workers to stop.")
+
+        if cmd in ("/budget-status", "/budget_status", "/cost-report", "/cost_report"):
+            if hasattr(self, "budget_tracker"):
+                daily, _ = await self.budget_tracker.get_usage()
+                content = (
+                    "💸 **Live Budget Report** 💸\n"
+                    f"- **Spent Today**: `${daily:.4f}` USD\n"
+                    f"- **Daily Limit**: `${self.budget_tracker.daily_limit:.4f}` USD\n"
+                    f"- **Utilization**: `{(daily/self.budget_tracker.daily_limit)*100:.1f}%`"
+                )
+                if self.worker_registry:
+                    content += f"\n- **Active Workers**: `{self.worker_registry.get_active_count()}`"
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=content)
+            else:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content="Budget tracking is offline.")
 
         # Proactive compaction: keep context bounded and memory files current.
         # Fire when session exceeds memory_window AND at least memory_window // 2

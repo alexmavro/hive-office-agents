@@ -1,35 +1,35 @@
 """CLI utilities for skill creation and packaging."""
 
-import click
 import os
 import re
 import shutil
 import zipfile
 from pathlib import Path
 
+import typer
+from rich.console import Console
 
-@click.group()
-def skill():
-    """Manage Hive agent skills."""
-    pass
+console = Console()
+skill = typer.Typer(help="Manage Hive agent skills.")
 
 
 @skill.command(name="init")
-@click.argument("name")
-@click.option("--desc", "-d", default="A new skill.", help="Description of the skill.")
-@click.option("--workspace", default="~/.hive/workspace", help="Path to the agent workspace.")
-def init_skill(name: str, desc: str, workspace: str) -> None:
+def init_skill(
+    name: str = typer.Argument(..., help="Name of the skill to initialize."),
+    desc: str = typer.Option("A new skill.", "--desc", "-d", help="Description of the skill."),
+    workspace: str = typer.Option("~/.hive/workspace", "--workspace", help="Path to the agent workspace.")
+) -> None:
     """Initialize a new empty skill directory."""
     if not re.match(r"^[a-z0-9-]+$", name):
-        click.secho("Error: Skill name must be lowercase alphanumeric with dashes.", fg="red")
-        raise click.Abort()
+        console.print("Error: Skill name must be lowercase alphanumeric with dashes.", style="red")
+        raise typer.Abort()
 
     workspace_path = Path(workspace).expanduser().resolve()
     skill_dir = workspace_path / "skills" / name
 
     if skill_dir.exists():
-        click.secho(f"Error: Skill '{name}' already exists at {skill_dir}", fg="red")
-        raise click.Abort()
+        console.print(f"Error: Skill '{name}' already exists at {skill_dir}", style="red")
+        raise typer.Abort()
 
     try:
         # Scaffold directory
@@ -53,36 +53,37 @@ Add complex logic references here.
 """
         (skill_dir / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
         
-        click.secho(f"Successfully initialized skill '{name}' at {skill_dir}", fg="green")
+        console.print(f"Successfully initialized skill '{name}' at {skill_dir}", style="green")
         
     except Exception as e:
-        click.secho(f"Failed to initialize skill: {e}", fg="red")
-        raise click.Abort()
+        console.print(f"Failed to initialize skill: {e}", style="red")
+        raise typer.Abort()
 
 
 @skill.command(name="package")
-@click.argument("name")
-@click.option("--workspace", default="~/.hive/workspace", help="Path to the agent workspace.")
-@click.option("--outdir", default=".", help="Directory to save the .skill package.")
-def package_skill(name: str, workspace: str, outdir: str) -> None:
+def package_skill(
+    name: str = typer.Argument(..., help="Name of the skill to package."),
+    workspace: str = typer.Option("~/.hive/workspace", "--workspace", help="Path to the agent workspace."),
+    outdir: str = typer.Option(".", "--outdir", help="Directory to save the .skill package.")
+) -> None:
     """Package a skill directory into a distributable .skill archive."""
     workspace_path = Path(workspace).expanduser().resolve()
     skill_dir = workspace_path / "skills" / name
     
     if not skill_dir.exists():
-        click.secho(f"Error: Skill '{name}' does not exist at {skill_dir}", fg="red")
-        raise click.Abort()
+        console.print(f"Error: Skill '{name}' does not exist at {skill_dir}", style="red")
+        raise typer.Abort()
         
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.exists():
-        click.secho(f"Error: Skill directory is missing SKILL.md", fg="red")
-        raise click.Abort()
+        console.print(f"Error: Skill directory is missing SKILL.md", style="red")
+        raise typer.Abort()
         
     # Validate frontmatter exists
     content = skill_md.read_text(encoding="utf-8")
     if not content.startswith("---"):
-        click.secho(f"Error: SKILL.md is missing YAML frontmatter.", fg="red")
-        raise click.Abort()
+        console.print(f"Error: SKILL.md is missing YAML frontmatter.", style="red")
+        raise typer.Abort()
 
     out_path = Path(outdir).resolve() / f"{name}.skill"
     
@@ -95,7 +96,7 @@ def package_skill(name: str, workspace: str, outdir: str) -> None:
                     arcname = file_path.relative_to(skill_dir)
                     zf.write(file_path, arcname)
                     
-        click.secho(f"Successfully packaged skill '{name}' to {out_path}", fg="green")
+        console.print(f"Successfully packaged skill '{name}' to {out_path}", style="green")
     except Exception as e:
-        click.secho(f"Failed to package skill: {e}", fg="red")
-        raise click.Abort()
+        console.print(f"Failed to package skill: {e}", style="red")
+        raise typer.Abort()
