@@ -6,11 +6,12 @@ from pathlib import Path
 from loguru import logger
 
 class BudgetTracker:
-    def __init__(self, workspace: Path, daily_limit: float = 10.0):
+    def __init__(self, workspace: Path, daily_limit: float = 10.0, emitter: "EventEmitter | None" = None):
         self.workspace = workspace
         self.daily_limit = daily_limit
         self.state_file = self.workspace / ".budget_state.json"
         self._lock = asyncio.Lock()
+        self._emitter = emitter
         
     async def add_cost(self, worker_id: str | None, cost_usd: float) -> None:
         """Add cost synchronously to the budget state."""
@@ -23,6 +24,22 @@ class BudgetTracker:
             if worker_id:
                 state["workers"][worker_id] = state["workers"].get(worker_id, 0.0) + cost_usd
             await asyncio.to_thread(self._save_state, state)
+
+        # S7: Emit budget update event
+        if self._emitter:
+            from hive.bus.emitter import HiveEvent
+            await self._emitter.emit(HiveEvent(
+                type="budget",
+                data={
+                    "event": "cost_added",
+                    "cost_usd": round(cost_usd, 6),
+                    "daily_usd": round(state["daily_usd"], 4),
+                    "daily_limit": self.daily_limit,
+                    "pct": round(state["daily_usd"] / self.daily_limit * 100, 1) if self.daily_limit > 0 else 0,
+                    "worker_id": worker_id,
+                },
+            ))
+
             
     async def get_usage(self, worker_id: str | None = None) -> tuple[float, float | None]:
         """Get (daily_usd, worker_usd) usage."""

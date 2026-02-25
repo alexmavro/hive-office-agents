@@ -11,8 +11,9 @@ from hive.config.schema import Config
 class WorkerRegistry:
     """Manages active background workers and enforces concurrency limits."""
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, emitter: "EventEmitter | None" = None):
         self.config = config
+        self._emitter = emitter
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._results: dict[str, WorkerReport] = {}
         self._loop_kwargs: dict[str, Any] = {}
@@ -169,7 +170,21 @@ class WorkerRegistry:
         self._active_tasks[order.name] = task
         
         logger.info(f"Spawned worker '{order.name}'. Active: {self.get_active_count()}/{self.max_workers}")
-        
+
+        # S7: Emit worker_spawn event
+        if self._emitter:
+            from hive.bus.emitter import HiveEvent
+            await self._emitter.emit(HiveEvent(
+                type="worker",
+                data={
+                    "event": "worker_spawn",
+                    "name": order.name,
+                    "task": order.task[:200],
+                    "active": self.get_active_count(),
+                    "max": self.max_workers,
+                },
+            ))
+
         return WorkerReport(
             worker_name=order.name,
             status=WorkerStatus.PENDING,
@@ -208,7 +223,20 @@ class WorkerRegistry:
         self._results[order.name] = report
         
         logger.info(f"Worker '{order.name}' finished with status: {report.status.value}")
-        
+
+        # S7: Emit worker lifecycle event
+        if self._emitter:
+            from hive.bus.emitter import HiveEvent
+            await self._emitter.emit(HiveEvent(
+                type="worker",
+                data={
+                    "event": f"worker_{report.status.value}",
+                    "name": order.name,
+                    "error": report.error[:200] if report.error else None,
+                    "active": self.get_active_count(),
+                },
+            ))
+
         # Fire callback to notify user/Queen
         if on_complete:
             try:

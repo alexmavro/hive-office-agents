@@ -13,6 +13,7 @@ from hive.agent.tools.gate import classify_tool, Tier, GateDecision
 
 if TYPE_CHECKING:
     from hive.audit import AuditLogger
+    from hive.bus.emitter import EventEmitter
 
 # Patterns present in to_tool_output() and ExecTool output that indicate non-zero exit.
 _EXIT_CODE_RE = re.compile(r"Exit code:\s*(-?\d+)")
@@ -85,9 +86,11 @@ class ToolRegistry:
         workspace: Path | None = None,
         approval_timeout: float = 300.0,
         worker_registry: Any = None,
+        emitter: "EventEmitter | None" = None,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._audit = audit
+        self._emitter = emitter
         self._session_id: str | None = None
         self._workspace = workspace
         self._approval_timeout = approval_timeout  # reserved for SB.2
@@ -256,21 +259,22 @@ class ToolRegistry:
             return f"Error executing {name}: {str(e)}"
 
         finally:
+            duration_ms = (time.monotonic() - t0) * 1000
+            security = (
+                _security_meta(name, params, result)
+                if name in ("docker_exec", "exec")
+                else None
+            )
+            if decision is not None:
+                gate_meta: dict[str, Any] = {
+                    "gate_tier": decision.tier.value,
+                    "gate_reason": decision.reason,
+                }
+                if decision.category:
+                    gate_meta["gate_category"] = decision.category
+                security = {**(security or {}), **gate_meta}
+
             if self._audit:
-                duration_ms = (time.monotonic() - t0) * 1000
-                security = (
-                    _security_meta(name, params, result)
-                    if name in ("docker_exec", "exec")
-                    else None
-                )
-                if decision is not None:
-                    gate_meta: dict[str, Any] = {
-                        "gate_tier": decision.tier.value,
-                        "gate_reason": decision.reason,
-                    }
-                    if decision.category:
-                        gate_meta["gate_category"] = decision.category
-                    security = {**(security or {}), **gate_meta}
                 await self._audit.log_tool_call(
                     actor="queen",
                     tool=name,
@@ -281,6 +285,20 @@ class ToolRegistry:
                     session_id=self._session_id,
                     security=security,
                 )
+
+            # S7: Emit tool_call event to the emission stream
+            if self._emitter:
+                from hive.bus.emitter import HiveEvent
+                await self._emitter.emit(HiveEvent(
+                    type="tool_call",
+                    data={
+                        "tool": name,
+                        "ok": ok,
+                        "duration_ms": round(duration_ms, 1),
+                        "error": error[:200] if error else None,
+                        "gate_tier": decision.tier.value if decision else None,
+                    },
+                ))
 
     # ------------------------------------------------------------------
     # Convenience

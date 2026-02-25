@@ -308,6 +308,20 @@ class AuditConfig(BaseModel):
     report_hour: int = Field(9, ge=0, le=23)           # UTC hour to generate daily MD report (SA.3)
 
 
+class StreamConfig(BaseModel):
+    """S7 emission stream configuration.
+
+    Controls the WebSocket server that streams real-time system events
+    (tool calls, LLM calls, worker lifecycle, budget heartbeat) for
+    live observation via `hive stream`.
+    """
+    model_config = ConfigDict(extra='forbid')
+    enabled: bool = True
+    host: str = "127.0.0.1"  # Localhost only by default. SSH tunnel for remote.
+    port: int = Field(9100, ge=1, le=65535)
+    token: SecretStr = SecretStr("")  # Empty = no auth required (fine for localhost-only)
+
+
 class Config(BaseSettings):
     """Root configuration for hive."""
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -316,6 +330,7 @@ class Config(BaseSettings):
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
+    stream: StreamConfig = Field(default_factory=StreamConfig)
     
     @property
     def workspace_path(self) -> Path:

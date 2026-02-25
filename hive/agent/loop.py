@@ -36,6 +36,7 @@ from hive.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from hive.audit import AuditLogger
+    from hive.bus.emitter import EventEmitter
 
 # Simple prompt-injection signal patterns — matched on raw inbound content.
 # We do NOT store the content; we only flag its presence in the audit log.
@@ -85,6 +86,7 @@ class AgentLoop:
         worker_registry: "WorkerRegistry | None" = None,
         daily_usd_budget: float = 10.0,
         worker_usd_limit: float = 0.50,
+        emitter: "EventEmitter | None" = None,
     ):
         from hive.config.schema import ExecToolConfig
         from hive.cron.service import CronService
@@ -103,6 +105,7 @@ class AgentLoop:
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self._audit = audit
+        self._emitter = emitter
 
         # Initialise memory/ hierarchy from templates on first boot (idempotent)
         _templates_dir = Path(__file__).parent.parent.parent / "templates" / "memory"
@@ -110,10 +113,10 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
-        self.tools = ToolRegistry(audit=audit, workspace=workspace)
+        self.tools = ToolRegistry(audit=audit, workspace=workspace, emitter=emitter)
         self.worker_registry = worker_registry
         
-        self.budget_tracker = BudgetTracker(workspace, daily_limit=daily_usd_budget)
+        self.budget_tracker = BudgetTracker(workspace, daily_limit=daily_usd_budget, emitter=emitter)
         self.worker_usd_limit = worker_usd_limit
         
         self._running = False
@@ -374,9 +377,9 @@ class AgentLoop:
                 _llm_error = str(_exc)[:200]
                 raise
             finally:
+                _duration_ms = (time.monotonic() - _t0_llm) * 1000
+                _tool_names = [tc.name for tc in _llm_tool_calls] if _llm_tool_calls else None
                 if self._audit:
-                    _duration_ms = (time.monotonic() - _t0_llm) * 1000
-                    _tool_names = [tc.name for tc in _llm_tool_calls] if _llm_tool_calls else None
                     await self._audit.log_llm_call(
                         model=self.model,
                         tokens_in=_llm_usage.get("prompt_tokens", 0),
@@ -388,6 +391,22 @@ class AgentLoop:
                         session_id=self.tools._session_id,
                         error=_llm_error,
                     )
+                # S7: Emit llm_call event to the emission stream
+                if self._emitter:
+                    from hive.bus.emitter import HiveEvent
+                    await self._emitter.emit(HiveEvent(
+                        type="llm_call",
+                        data={
+                            "model": self.model,
+                            "tokens_in": _llm_usage.get("prompt_tokens", 0),
+                            "tokens_out": _llm_usage.get("completion_tokens", 0),
+                            "tool_calls_n": len(_llm_tool_calls),
+                            "duration_ms": round(_duration_ms, 1),
+                            "cost_usd": _llm_cost_usd,
+                            "tool_names": _tool_names,
+                            "error": _llm_error,
+                        },
+                    ))
 
             if response.has_tool_calls:
                 tool_call_dicts = [
