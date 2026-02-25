@@ -8,7 +8,7 @@
 
 - [x] **S4.1**: `WorkerLoop` — `AgentLoop` subclass with restricted tool set (`docker_exec`, no shell), `max_iterations` cap, `provide_final_answer` grace mechanism.
 - [x] **S4.2**: `WorkerRegistry` & Lifecycle — Tracks active tasks, enforces `maxWorkers` cap, limits concurrency.
-- [x] **S4.3**: `spawn` & `spawn_pipeline` tools — Queen passes Pydantic DMZ config down to registry; pipeline strings tasks sequentially.
+- [x] **S4.3**: `spawn` & `spawn_pipeline` tools — Queen passes Pydantic DMZ config down to registry; pipeline strings tasks sequentially. **Bug fixed 2026-02-25**: `spawn_pipeline` was calling `spawn_worker()` (fire-and-forget, returns `PENDING` immediately) and then checking `status != "completed"` — pipeline always aborted after stage 1. Fixed by adding `spawn_worker_and_wait()` to `WorkerRegistry` + wiring `SpawnPipelineTool` context in `_set_tool_context()`.
 - [x] **S4.4**: `workers` tool — Queen lists background worker uptimes and recent completion reports.
 - [x] **S4.5**: Bus Event Injection — Re-routed pipeline start/end messaging directly into the event bus for immediate Discord/Telegram notification.
 - [x] **S4.6**: Core Loop Mechanics Integration — `WorkerLoop` execution loop brought up to parity with `AgentLoop` using `ContextBuilder`. End-to-End tests passing.

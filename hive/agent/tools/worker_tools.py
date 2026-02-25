@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import Field
 
 from hive.agent.tools.base import Tool
-from hive.agent.worker.schema import WorkerOrder, PipelineOrder
+from hive.agent.worker.schema import WorkerOrder, PipelineOrder, WorkerStatus
 
 
 class SpawnTool(Tool):
@@ -191,6 +191,7 @@ class SpawnPipelineTool(Tool):
         # We don't await the whole pipeline here, we launch a background orchestrator coroutine
         # so the Queen can return to the user immediately.
         async def orchestrate_pipeline():
+            from hive.bus.events import InboundMessage
 
             start_msg = InboundMessage(
                 channel="system",
@@ -211,24 +212,29 @@ class SpawnPipelineTool(Tool):
                     
                 order = WorkerOrder(name=name, task=task_prompt, model=model)
                 
-                # Wait for this stage to finish before continuing
-                # pipeline steps use their own model overrides, so we create a fresh factory
-                report = await self.worker_registry.spawn_worker(
+                # Block until this stage finishes before advancing to the next.
+                # spawn_worker_and_wait() awaits the real background task — it never
+                # returns PENDING, only COMPLETED / FAILED / CANCELLED.
+                report = await self.worker_registry.spawn_worker_and_wait(
                     order=order,
                     loop_factory=lambda m=model: loop_factory(m),
-                    on_complete=None  # We handle the bus messages manually for pipelines
+                    on_complete=None,  # Pipeline handles bus messages inline
                 )
-                
-                if report.status.value != "completed":
+
+                if report.status != WorkerStatus.COMPLETED:
                     fail_msg = InboundMessage(
                         channel="system",
                         sender_id="worker_registry",
                         chat_id=f"{self.channel}:{self.chat_id}",
-                        content=f"[PIPELINE '{pipeline_name}' FAILED at stage '{name}']\nError: {report.error}",
+                        content=(
+                            f"[PIPELINE '{pipeline_name}' FAILED at stage '{name}']\n"
+                            f"Status: {report.status.value}\n"
+                            f"Error: {report.error}"
+                        ),
                     )
                     await self.worker_registry._loop_kwargs["bus"].publish_inbound(fail_msg)
                     return
-                    
+
                 previous_output = str(report.output)
                 
             # Pipeline success

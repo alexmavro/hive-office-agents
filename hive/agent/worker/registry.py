@@ -52,6 +52,66 @@ class WorkerRegistry:
             
         return "\n".join(lines)
 
+    async def spawn_worker_and_wait(
+        self,
+        order: WorkerOrder,
+        loop_factory: Callable[[], WorkerLoop],
+        on_complete: Callable[[WorkerReport], Coroutine[Any, Any, None]] | None = None,
+    ) -> WorkerReport:
+        """Spawn a worker and block until it fully completes.
+
+        Used by pipeline orchestrators that need to chain outputs sequentially.
+        Unlike :meth:`spawn_worker`, this method does not return until the worker
+        task has finished (COMPLETED, FAILED, or CANCELLED).
+
+        Args:
+            order: The execution instructions for the worker.
+            loop_factory: A callable that returns a pre-configured WorkerLoop.
+            on_complete: Optional async callback fired when the worker finishes.
+
+        Returns:
+            The terminal WorkerReport (status is never PENDING on return).
+        """
+        # Delegate launch + registration to the existing fire-and-forget API.
+        # If spawning is rejected (cap hit, name collision) we get FAILED back immediately.
+        pending_report = await self.spawn_worker(order, loop_factory, on_complete)
+        if pending_report.status == WorkerStatus.FAILED:
+            # Rejected before a background task was ever created — return as-is.
+            return pending_report
+
+        # The task was registered. Await it to completion.
+        # Use asyncio.shield so that if *our* caller is cancelled the worker
+        # still runs to completion and its completion callback still fires.
+        task = self._active_tasks.get(order.name)
+        if task:
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # Our awaiter was cancelled, but the shielded task keeps running.
+                # Return the best report we have — it may be PENDING if the worker
+                # finishes after we return, but that is acceptable for a cancelled pipeline.
+                return self._results.get(
+                    order.name,
+                    WorkerReport(
+                        worker_name=order.name,
+                        status=WorkerStatus.CANCELLED,
+                        error="Pipeline was cancelled while waiting for this stage.",
+                        step_summary="Interrupted.",
+                    ),
+                )
+
+        # By the time we reach here, _run_worker_task has popped the active task
+        # and written the final report into _results.
+        return self._results.get(
+            order.name,
+            WorkerReport(
+                worker_name=order.name,
+                status=WorkerStatus.FAILED,
+                error="Worker finished but no result was recorded.",
+                step_summary="",
+            ),
+        )
+
     async def spawn_worker(
         self,
         order: WorkerOrder,

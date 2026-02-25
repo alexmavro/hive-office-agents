@@ -279,7 +279,11 @@ class AgentLoop:
         )
 
     def _set_tool_context(self, channel: str, chat_id: str) -> None:
-        """Update context for all tools that need routing info."""
+        """Update context for all tools that need per-message routing info.
+
+        Called before every agent loop run to ensure tool callbacks (message,
+        spawn, cron, pipeline) route results to the correct channel/chat_id.
+        """
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.set_context(channel, chat_id)
@@ -288,9 +292,16 @@ class AgentLoop:
             if isinstance(spawn_tool, SpawnTool):
                 spawn_tool.set_context(channel, chat_id)
 
+        # SpawnPipelineTool also stores channel/chat_id for all start/fail/complete
+        # bus messages it publishes during the background orchestration coroutine.
+        if pipeline_tool := self.tools.get("spawn_pipeline"):
+            if isinstance(pipeline_tool, SpawnPipelineTool):
+                pipeline_tool.set_context(channel, chat_id)
+
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
+
 
     async def _run_agent_loop(self, initial_messages: list[dict]) -> tuple[str | None, list[str]]:
         """
