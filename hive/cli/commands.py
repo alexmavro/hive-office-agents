@@ -1,6 +1,7 @@
 """CLI commands for hive."""
 
 import asyncio
+import json
 import os
 import signal
 from pathlib import Path
@@ -598,6 +599,8 @@ def stream(
                     except json.JSONDecodeError:
                         console.print(f"[dim]{message}[/dim]")
 
+        except websockets.exceptions.ConnectionClosed:
+            console.print("\n[dim]Connection closed by server.[/dim]")
         except ConnectionRefusedError:
             console.print(f"[red]Cannot connect to {uri}. Is the gateway running?[/red]")
         except KeyboardInterrupt:
