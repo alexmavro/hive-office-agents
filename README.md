@@ -2,19 +2,16 @@
 
 Autonomous AI agent system. **The Queen manages. Workers execute.**
 
-Built for real office work: Multi-channel (Discord, Telegram, CLI), security-first, cost-aware. Running 24/7 on a VPS.
-
-> **For full project context:** see [CLAUDE.md](CLAUDE.md)
-> **Build status & decisions:** see [STATUS.md](STATUS.md)
+Running 24/7 on a VPS. Multi-channel (Discord, Telegram, CLI). Security-first. Cost-aware.
 
 ---
 
 ## Quick Start
 
-The gateway runs as a supervised systemd service to prevent duplicated polling and memory loss.
+The gateway runs as a supervised systemd service.
 
-**Restart the gateway & check logs**:
 ```bash
+# Restart & check logs
 sudo systemctl restart hive-gateway
 journalctl -u hive-gateway -n 20 --no-pager
 ```
@@ -23,17 +20,18 @@ journalctl -u hive-gateway -n 20 --no-pager
 
 ## How to Interact
 
-The Queen is your manager, not a simple task-bot. You interact with her via your connected channels (e.g., Discord or Telegram).
-- **Prompting:** Give her high-level objectives. She formulates a plan and spawns background **Workers** to do the heavy lifting in isolated Docker sandboxes. Do not try to micromanage workers directly; always talk to the Queen.
-- **Approvals (Security):** Gated Tier 1 actions (like running host commands) require explicit authorization. If she needs permission, she will ask. Send `APPROVE <category>` or `APPROVE ALL` from your configured `admin` channel to authorize the current plan.
-- **Isolation:** Each channel and chat ID automatically routes to its own isolated memory project, ensuring conversations remain distinct while the Queen retains global awareness.
+The Queen is your manager, not a task-bot. Use Telegram or Discord to give her high-level objectives.
+
+- **Workers:** She spawns background workers for heavy tasks. Talk to the Queen — not the workers.
+- **Approvals:** Gated actions (like host commands) require `APPROVE <category>` from your `admin` channel.
+- **Isolation:** Each channel/chat gets its own isolated memory project automatically.
 
 ---
 
 ## CLI Reference
 
 | Command | Description |
-|---------|-------------|
+|---|---|
 | `hive gateway` | Start gateway (channels + cron + heartbeat) |
 | `hive agent` | Interactive terminal chat |
 | `hive agent -m "..."` | Single message |
@@ -41,22 +39,18 @@ The Queen is your manager, not a simple task-bot. You interact with her via your
 | `hive status` | Show config & provider status |
 | `hive channels status` | Show channel connection status |
 | `hive cron list` | List scheduled jobs |
-| `hive cron add` | Add a scheduled job |
 
 ---
 
 ## Configuration
 
 ```
-~/.hive/config.json        # API keys, bot token, channel config — chmod 600
+~/.hive/config.json        # API keys, bot tokens, channel config — chmod 600
 ~/.hive/workspace/         # Queen's working directory (SOUL.md, memory/, skills/)
 ~/.hive/sessions/          # Conversation history (JSONL DAG)
 ```
 
-**Memory Isolation Note**: Each channel connection (e.g. a specific Discord channel) automatically gets its own isolated project folder at `~/.hive/workspace/memory/projects/ch_{channel}_{chat_id}` to prevent context bleeding between different conversations, while the Queen retains global awareness.
-
-Minimal config example:
-
+Minimal config:
 ```json
 {
   "providers": {
@@ -77,56 +71,20 @@ Minimal config example:
 
 ---
 
-## Architecture
-
-```
-Hive-Queen  (LAW, root, crowned)
-├── Workers
-│   ├── Temps       — ephemeral, spawned per task, auto-terminated  (S4)
-│   └── Consorts    — stateful, promoted temps, long-lived          (S4)
-└── Hive-Teams      — multi-worker collaborative workflows          (post-S7)
-```
-
-Data flow:
-```
-Channel → Bus → Agent Loop → LLM → Tool Exec → Bus → Channel
-```
-
-**Execution layers:**
-- `exec` — host shell (Queen only, root access)
-- `docker_exec` — sandboxed code (AST filter + ephemeral container, 512MB/1CPU)
-
----
-
-## Project Structure
-
-```
-hive/
-├── agent/        # Loop, context, memory, retrieval, consolidation, onboarding, tools/
-├── channels/     # Telegram (active) + 8 integrations (future)
-├── bus/          # Async pub/sub message routing
-├── config/       # Pydantic config models
-├── providers/    # LLM providers via LiteLLM
-├── cron/         # Scheduled task service
-├── heartbeat/    # Proactive agent wake-up
-├── session/      # JSONL DAG conversation storage
-├── skills/       # Bundled skills (github, weather, tmux, ...)
-└── cli/          # hive CLI
-
-workspace/        # Template workspace files (SOUL.md, AGENTS.md)
-templates/memory/ # Memory hierarchy templates
-```
-
----
-
 ## Tests
 
 ```bash
-pytest tests/             # All tests
-pytest -m "not docker"    # Skip tests requiring the hive-worker Docker image
+# Full unit suite
+pytest tests/ --ignore=tests/integration
+
+# Skip Docker sandbox tests
+pytest -m "not docker"
+
+# E2E tests (hits real Gemini API, slow)
+pytest tests/integration/
 ```
 
-Build the Docker image for sandbox tests:
+Build the worker Docker image (needed for sandbox tests):
 ```bash
 docker build -f worker.Dockerfile -t hive-worker:latest .
 ```
@@ -135,15 +93,29 @@ docker build -f worker.Dockerfile -t hive-worker:latest .
 
 ## Build Status
 
-| Step | Goal | Status |
-|------|------|--------|
+| Milestone | Description | Status |
+|---|---|---|
 | S0 | Scaffold + Telegram | ✅ Complete |
 | S1 | JSONL DAG memory | ✅ Complete |
-| S2 | Memory architecture | ✅ Complete — 182 tests |
-| S3 | Docker executor | ✅ Complete — 257 tests |
-| **S4** | **Hive Manager (worker spawning)** | **Next** |
-| S5 | Skill forge | Not started |
-| S6 | Safety rails | Not started |
-| S7 | Emission stream | Not started |
+| S2 | Memory architecture | ✅ Complete |
+| S3 | Docker executor | ✅ Complete |
+| SA | Audit layer | ✅ Complete |
+| SB | Security Boundaries | ✅ Complete |
+| S4 | Hive Manager (worker spawning) | ✅ Complete |
+| S5 | Skill Forge | ✅ Complete |
+| S6 | Safety Rails | ✅ Complete |
+| **S7** | **Emission stream** | **🔲 Next** |
 
+504/504 tests passing · Phase 1 closes at S7.
 
+---
+
+## Developer Docs
+
+| Document | Purpose |
+|---|---|
+| [ANTIGRAVITY.md](ANTIGRAVITY.md) | **Read first** — builder entry point, NO-GO list, architecture, all lessons |
+| [VISION.md](VISION.md) | Product vision, architecture, design philosophy |
+| [STATUS.md](STATUS.md) | Living roadmap — current build state, next steps |
+| [SECURITY.md](SECURITY.md) | Security architecture reference |
+| [HISTORY.md](HISTORY.md) | Build narrative — decisions and lessons per milestone |

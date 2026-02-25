@@ -1,124 +1,228 @@
-# Antigravity Standard Operating Procedure (SOP) & Memory Bank
+# ANTIGRAVITY.md — Builder Entry Point
 
-**Identity:** Antigravity (Agentic Coding Assistant / Security Officer & Architect)  
-**Role:** Contributing to the Hive Queen project alongside Claude and Alex.
+**Read this first. Every time. All builders: human developers and AI instances.**
 
-## 1. The Ephemeral Challenge (Why We Document)
-As AI agents, we do not share continuous memory between isolated sessions. When a new session starts, we are born with zero context aside from what is written in the repository. **If we do not document our work, learnings, and decisions, we will duplicate effort, break working architectures, and introduce security regressions.**
-
-To ensure consistency, every Antigravity instance MUST adhere to the following Documentation Strategy and Implementation Loop.
-
-## 2. The Documentation Strategy (Where Things Go)
-
-Before starting or concluding any task, consult and update the following files based on their specific purpose:
-
-| File | Purpose | When to Update |
-|---|---|---|
-| `CLAUDE.md` | **The North Star**: Core project vision, unshakeable architecture rules, and "NO-GO" zones. | Rarely. Only when the fundamental architecture or project goals shift. |
-| `STATUS.md` | **The Living Roadmap**: High-level feature tracking and task checklists. | Immediately after successfully verifying and pushing a feature. Check off the box and update ETAs. |
-| `SECURITY.md` | **The Security Posture**: Current vulnerabilities, implemented boundaries (SB.x), and data layer tracking. | Whenever a security boundary is closed, a new attack vector is found, or sensitive data handling changes. |
-| `ANTIGRAVITY.md` | **The Agent Memory Bank**: Hard-won technical learnings, exact gotchas, and SOPs for future agents. | When you discover a quirk (e.g., `python -c` bypass, or config precedence) that the next agent will definitely trip over if they aren't warned. |
-| `/root/Builder_Reports/` | **The Project History & AI Commentary**: A persistent directory containing detailed markdown reports of process, thinking, problems, and walkthroughs for each major session. | At the clean end of a work session before handing back to Alex. |
-| `Walkthroughs` | **Ephemeral Session Receipts**: Artifacts in `.gemini/antigravity/brain` highlighting changes during the active session. | Only used during active development; the final polished history goes into `Builder_Reports`. |
-
-> [!TIP]
-> **Documentation Sweeps**
-> When starting a documentation review task or onboarding into a complex flow, do not guess file names. The single fastest way to grab all top-level context is to run: `find /root/queen-alpha -maxdepth 2 -name "*.md"` or `ls -la /root/queen-alpha/*.md`. This guarantees you don't miss files like `README.md`, `STATUS.md`, `CLAUDE.md`, `SECURITY.md`, and `ANTIGRAVITY.md`.
-
-## 3. The Implementation Loop (How We Work)
-
-As a security-aware project manager, you must follow this exact sequence for every objective:
-
-1. **Alignment & Planning:** Read `CLAUDE.md` and `STATUS.md` first. Propose a plan to Alex. **Do not make silent architectural changes.** If you find a security hole, explain it and propose the fix before mutating the codebase.
-2. **Deep-Verification & Execution:** Write the code. You **MUST** run the test suite (`pytest tests/`) and verify your changes. **NOTHING IS REAL UNLESS WE TEST IT.** You must write WAY MORE TESTS specifically targeting edge cases, bounds, and constraints for any new logic. 
-    *   **Unit Tests vs. Integration:** Beware unit tests that mock the `__init__` constructor of complex objects (like `AgentLoop`). During SB.2, we discovered critical missing parameters (`workspace=`) and missing registrations (`SessionApproveTool`) because unit tests mocked them out. Write real integration tests.
-    *   **The Deep-Verification Protocol:** Do not blindly rely on the happy path. Actively look for execution deadlocks (e.g., missing dependencies causing silent import hangs that block bash pipes), silent failures masquerading as successful log lines, and resource leaks. Always test against adversarial inputs. Before declaring a feature "COMPLETE", you must verify the full integration boundary from configuration schema validation all the way to runtime object instantiation and output.
-3. **The Handover (Documentation Phase):**
-    *   Tick the completed items in `STATUS.md` and `SECURITY.md`.
-    *   Append new architectures or dangerous quirks to the `Memory Bank` below.
-    *   **CRITICAL:** Write a comprehensive historical report in `/root/Builder_Reports/` (e.g., `YYYY-MM-DD_Feature_Report.md`). Discuss thought processes, failed approaches, and security learnings.
-4. **Commit & Propose Push:** Commit with clear conventional commit messages to the active branch (e.g., `workers`). **DO NOT `git push` without explicitly asking Alex for permission first.**
+This is the single entry point for the `queen-alpha` (hive-office-agents) repository.
+Everything else is referenced from here with clear intent.
 
 ---
 
-## 4. The Agent Memory Bank (Technical & Security Learnings)
+## Document Map (MECE)
 
-*To all future Antigravity instances: Read this section before touching the codebase. These are blood-written rules.*
+| Document | Purpose | When to read |
+|---|---|---|
+| **ANTIGRAVITY.md** (this file) | Builder entry point. NO-GO list. Process rules. Lessons. Architecture traps. Nav hub. | **Always first** |
+| [VISION.md](VISION.md) | Product vision. Architecture. Design philosophy. Why things are built the way they are. | When understanding *what we're building* or *why* a design choice was made |
+| [STATUS.md](STATUS.md) | Living roadmap. Current build state. Phase 1/2 plans. SB checklist. Next step spec. | When picking up where we left off. Start here after ANTIGRAVITY. |
+| [SECURITY.md](SECURITY.md) | Security policy. Tiered gate specs. SB implementation details. Known limitations. | When building anything security-related. Reference spec. |
+| [README.md](README.md) | User-facing. Quick start. CLI. Config. | For new users setting up — not for builder work |
 
-### Systemd & Gateway Stability
-- The Hive Gateway MUST run as a singleton supervised process (`hive-gateway.service`) via systemd.
-- Manual execution of the gateway (tmux/screen) leads to duplicated polling (Telegram Conflict errors) and loss of short-term memory upon restarts.
+**workspace/ files (runtime, not builder docs):**
 
-### Security Boundaries (SB.1 - SB.4) & Gate Integrity
-- **The Core Tradeoff (Risk vs. Usability):** A ship is safest in harbor, but that is not what ships are built for. The VPS has 24h backups and is a dedicated environment specifically for the Hive. Do NOT cripple the Queen's ability to run `.py` files or manage her own machine just to block hypothetical internal risks. Security measures must focus strictly on preventing *external* control (e.g., prompt injections from untrusted channels) rather than locking the Queen out of her own execution environment. We must balance autonomy with security, always shining a light on how restrictions affect the Hive's speed and usability.
-- **SB.1/SB.2 Tiered Gating:** Tier 0 = Reject, Tier 1 = Approve, Tier 2 = Free. This lives inside `ToolRegistry.execute`.
-- **Admin Configuration (The Discord Incident):** Never blindly trust the user's `config.json` default roles. In Discord, we learned the default role could be accidentally set to `"admin"` globally. Rely on `channel_routes` for precision least-privilege scoping, and ensure default handler bypasses enforce user-level permissions unless explicitly whitelisted.
-- **Execution Gates & `.py` autonomy:** The Queen requires the ability to write and execute scripts within her workspace to actually *do* things. While we previously considered strict fail-closed methods for `classify_exec`, we must not enact blocks that cause a "power-out" for the Queen. Gating should ensure that *data* (like a scraped webpage) doesn't execute as *code*, but the Queen herself must retain the autonomy to run scripts she intentionally authors.
-- **SB.3 Session Resumption:** Ensure that when a gateway restarts, the Queen does not blindly resume executing tools from memory on the first ping. It must halt and explicitly ask "Shall I continue?".
+| File | Purpose |
+|---|---|
+| `workspace/SOUL.md` | Queen's identity and operational rules. Ships with every instance. |
+| `workspace/AGENTS.md` | Agent self-knowledge: capabilities, tool reference, restart commands. |
+| `workspace/TOOLS.md` | Tool usage patterns and examples for the Queen. |
+| `workspace/HEARTBEAT.md` | Proactive wake-up context. |
+| `workspace/memory/MEMORY.md` | Memory hierarchy template and reading instructions. |
 
-### Memory Structure: Global Identity vs. Active Projects
-- **The Dual Memory Architecture:** We abandoned strict Channel Isolation in favor of a unified Identity with distinct Project workspaces. The Queen maintains one overarching persona (`SOUL.md` and `memory/identity/`) that learns globally across all interactions.
-- **Project Workspaces (`memory/projects/{name}/`):** Task-specific data and ongoing work belong to Projects, not channels. A user can interact with the same active project from both Telegram and Discord seamlessly.
-  - *Note on Projects:* Think of this exactly like "Claude Projects" or "Custom GPTs". When a user creates a new Discord channel, the Queen automatically maps it to a new Project space, becomes curious, and starts asking about her explicit role and objective so she can categorize the context correctly.
-- **Session Histories (`sessions/`):** While the Queen's *knowledge* is global and project-based, the literal turn-by-turn conversation DAGs (`DagSession`) remain scoped per chat session key (e.g., `telegram:12345`). This allows trainability across the system without intermingling direct conversational flows.
-- **Tool Context Flow:** Any background worker spawned (e.g., `SpawnTool`) inherits the active Project context rather than isolating by channel, ensuring subordinates contribute to the shared architectural goal.
-- **Future Functionality — Worker-Team Channel Routing:** Soon, we will allow explicit worker-teams or Hive-Specialists to interact with their respective explicit Discord channels. This prevents the Queen from acting as an annoying intermediary for everything, saving her resources for high-level management rather than message-passing.
+---
 
-### Test Environment & Pytest Execution
-- **The Global Path Blank:** `pytest` is NOT installed globally on the VPS. 
-- **DO NOT run:** `pytest tests/` or `python3 -m pytest tests/` or `uv run pytest tests/`. These will fail with "Command not found" or "No module named pytest".
-- **The Fix:** ALWAYS run tests using the explicit virtual environment path: `./.venv/bin/pytest tests/...`. If you forget this, you will waste 3-4 turns fighting the shell.
+## NO-GO (do not build without explicit direction from Alex)
 
-### E2E Test Suite & API Costs
-- **The Cost of E2E:** Our integration test suite (`tests/` containing `AgentLoop` tests) actually hits the LLM provider API (OpenRouter/Gemini). This costs real money and tokens.
-- **When to Run:** DO NOT run the full E2E test suite on every single small iterative change. We only run the E2E test suite when we reach a **milestone debugging phase** or when Alex explicitly asks for it. 
-- **The "Unbuilt Bridge" Problem:** E2E suites are highly sensitive. They will often fail because they hit "yet unbuilt bridges" (e.g., a missing config flag we plan to add in the next step). Running them too early causes false-alarms for incomplete milestones. Stick to targeted unit tests (where possible) or manual verification until the milestone is complete.
+- **WhatsApp channel** — security risk. Deprioritized indefinitely.
+- **ClawHub / external skill marketplace** — not aligned with quality-over-quantity strategy.
+- **LangChain, CrewAI, vector DBs** — no heavy framework dependencies.
+- **n8n credentials in config.json** — external service credentials stay in n8n's store, never `~/.hive/config.json`.
+- **Two parallel `WorkerReport` schemas** — reconcile before adding Instructor (A.2). One class, extended.
+- **Blocking asyncio in tool execution** — all tool execution paths are async. No `time.sleep`, no blocking I/O.
+- **Direct user messaging from workers** — workers cannot call `message`. All output routes through Queen.
+- **Workers spawning workers** — only Queen spawns workers currently. Future sub-spawning: children are Temps only.
 
-### Data Obfuscation (PY.1)
-- **Token Masking:** Any credential field loaded into memory MUST be cast as a `pydantic.SecretStr` in `schema.py`. Using plain strings leaks raw API keys into log files or crash traces trivially. Always invoke `.get_secret_value()` at the last possible execution jump.
+---
 
-### Worker Delegation (S4) & Pydantic DMZs
-- We rejected smolagents' AST Python executor and their sync loops. Our `WorkerLoop` is completely asynchronous, uses `provide_final_answer` grace exits on threshold limits, and executes untrusted code remotely in a controlled `docker_exec`. 
-- **The Pydantic DMZ:** The boundary between the Queen and her subordinate Workers is secured by `WorkerOrder` and `WorkerReport` pydantic schemas. Prompt-injected content scraped externally by a worker cannot mutate into a system instruction; it is forcefully serialized into bounded fields before it is allowed back into the Queen's thought process.
-- **The Fire-and-Forget Trap (Fixed 2026-02-25):** `WorkerRegistry.spawn_worker()` is intentionally fire-and-forget — it launches a background `asyncio.Task` and returns `WorkerReport(status=PENDING)` immediately. If a pipeline orchestrator calls `await spawn_worker()` and then checks `status == "completed"`, it will **ALWAYS** fail because the returned status is `PENDING`. The fix: `WorkerRegistry.spawn_worker_and_wait()` was added as the sequential-await API. It calls `spawn_worker()` to register/launch, then `await asyncio.shield(task)` to block until the real result is in `_results`. Pipelines MUST use `spawn_worker_and_wait()`. Single spawns keep using `spawn_worker()` (fire-and-forget is correct there).
-- **Context Wiring for Tools:** Any tool that produces background bus messages (spawn, spawn_pipeline, cron, message) must have `set_context(channel, chat_id)` called **per-message** in `AgentLoop._set_tool_context()`. If a new tool is added that routes outbound notifications, add it to `_set_tool_context()` or its completions will silently go to `"cli:direct"` — a dead channel nobody reads.
+## Process Rules
 
-### Skill Forge & Permanence (S5)
-- **Separation of Concerns:** We explicitly separated the concept of *Code Generation* from *Skill Packaging*. For S5, the blocker was that the Queen had no way to make her solutions permanent. 
-- **The Packaging Layer:** We built the `forge_skill` tool and CLI utilities to strictly enforce `SKILL.md` YAML frontmatter and directory structures (`~/.hive/workspace/skills/`). This solved the permanence issue without over-engineering.
-- **smolagents Deferral (S5.5+):** 
-  - While `smolagents` (the HuggingFace framework) is recognized as the ultimate engine for autonomous "Python Dev" workers that "think in code" rather than JSON tool calls, it was intentionally deferred. 
-  - Why? Because the Queen can already generate code using existing workers and `docker_exec`. Tacking on a massive framework dependency during S5 would have conflated structural packaging with code generation methodology. 
-  - **Future integration rule:** If/when `smolagents` is integrated, it must be deployed strictly as a *specialized worker type* connected to our `DockerSandbox`, not as a replacement for the core `WorkerLoop` or the `AgentLoop`.
+### How We Work
 
-### S6 Safety Rails & Cost Control
-- **Standardized Cost Tracking:** We integrated `litellm.completion_cost()` directly into the `LiteLLMProvider`. This ensures every `LLMResponse` carries an accurate USD cost before it even hits the `AuditLogger` or the `BudgetTracker`. 
-- **The MagicMock Trap:** When writing E2E tests with `pytest`, be extremely careful with `MagicMock` usage in `litellm` calls. If a mock returns an object that doesn't strictly follow the expected `completion_cost` return types (or if it's a generic mock that `isinstance(x, float)` fails on), it will crash the `AgentLoop`. We added `isinstance` guards in `loop.py` to prevent this.
-- **Circuit Breaker Hashing:** The breaker uses SHA256 hashes of `(tool_name, arguments)` and error strings. To trip correctly, the hash must be reset only when the *content* of the tool call or the *success/failure state* changes. A single successful "message" call usually resets the action loop.
-- **Budget Gate Atomicity:** Spend levels are persisted in `~/.hive/workspace/.budget_state.json`. The `BudgetTracker` uses an `asyncio.Lock` to ensure that concurrent workers adding cost don't cause race conditions in the spend total.
+- Agile. Build plan is living, not a contract.
+- Builder (Antigravity) is always free to suggest different approaches to Alex.
+- Alex (she/her) tests live on Telegram/Discord. AI builders test via pytest.
+- **Two-layer testing:** automated (`pytest tests/`) + live channel testing by Alex.
+- `pytest tests/` must pass before declaring any task complete. 504 tests as of 2026-02-25.
+- Read `ANTIGRAVITY.md` + `STATUS.md` at every session start. Update both when something significant happens.
 
-### Phase 2 — Forward Navigation Rules (added 2026-02-25)
+### Commit Discipline
 
-**You are entering Track A → B → C implementation. Read this section first.**
+```
+type(scope): description
+```
+Examples: `fix(S4): resolve pipeline deadlock`, `feat(S7): add WebSocket stream`, `test(S6): patch safety coverage`
 
-- **Canonical strategic doc:** `/root/alex_notes/hive-office_main-system_implementation_plans.md` — 1186 lines, 12 implementation plans across 3 tracks. If you are starting any A/B/HT plan, read the relevant section there first. STATUS.md contains the summary; the strategic doc has the full spec.
+Gate commits at phase boundaries. Git tags at milestones (`queen-alpha_SX_name`).
+See STATUS.md for current tag inventory.
 
-- **`WorkerReport` schema conflict (action required for A.2):** The strategic doc's `WorkerReport` in `hive/schemas/structured.py` adds `artifacts`, `lessons`, `token_cost` fields. The existing `hive/agent/worker/schema.py` `WorkerReport` has `status`, `output`, `error`, `step_summary`. These are **different classes with the same name**. Before implementing A.2 (Instructor), reconcile: extend the existing class or create a new `InstructorWorkerReport` subclass. Do NOT create two parallel `WorkerReport` schemas — that will silently break the spawn pipeline.
+### Gateway After Code Changes
 
-- **Config schema additions needed before building:** A.1 needs `stream_token: SecretStr`. B.1 needs `n8n_api_key: SecretStr`. B.2 needs `docling_url: str = "http://localhost:5001"`. Add to `hive/config/schema.py` first. Never hardcode these values.
+```bash
+sudo systemctl restart hive-gateway
+journalctl -u hive-gateway -n 50 -f
+```
+Do not use screen/tmux/nohup — duplicated process polling breaks everything.
 
-- **Port allocation (do not conflict):** 5678 = n8n, 5001 = Docling, 9100 = S7 stream, 8384 = Syncthing. Add a `## Port Allocation` table to CLAUDE.md before B.1 deployment.
+### Testing Strategy
 
-- **Consort promotion is only documented, not implemented.** `memory/workers/` is referenced in S4 design decisions but the directory may not be initialized on boot. Before HT.4 (Flow-Dev consort), verify `initialize_memory_hierarchy()` creates `workers/` and test the full promotion path.
+```bash
+./.venv/bin/pytest tests/ --ignore=tests/integration -q    # Full unit suite
+./.venv/bin/pytest tests/integration/ -v                    # E2E (hits real Gemini API, slow)
+./.venv/bin/pytest -m "not docker" -q                       # Skip Docker sandbox tests
+```
 
-- **HT.1 framework complexity trap:** The spec says "if it takes 500 lines to define a team, the abstraction is wrong." `HiveTeam` base class must be simple. Steps pass output forward through the pipeline — workers in a team do NOT communicate directly. The Queen is the only coordinator.
+---
 
-- **STORM/dspy/LiteLLM/Gemini triple (HT.2 risk):** STORM defaults to OpenAI model names internally. STORM v1.1.0 added LiteLLM support. Test `STORMWikiRunner` with `gemini/gemini-flash` BEFORE building the ResearchTeam class — if this combination breaks, the entire HT.2 plan needs to change.
+## Where We Are Right Now (2026-02-25)
 
-- **n8n credential isolation is non-negotiable (B.1):** Gmail OAuth token and any other external service credentials must live in n8n's credential store, NOT in `~/.hive/config.json`. The Queen triggers workflows by webhook ID. She never receives raw credentials. If a plan asks you to store credentials in `config.json`, stop and reconsider.
+**Phase 1 (S0-S7): 6/7 complete.** S7 (emission stream) is the last step.
+**504 tests passing.** No known regressions.
 
-- **SB.4 logic flaw still open:** The workspace-constraint check in `gate.py` can short-circuit the script first-run approval check. Low priority until HT.4 ships scripts that run through this gate. Document it — don't pretend it's fixed.
+**Immediate next step: build S7.** See STATUS.md for the full S7 spec.
 
-- **Test-before-ship rule for A-track:** A.2 and A.4 involve large new dependencies (Instructor, Playwright). Do a dry-run import and integration test BEFORE wiring into the production AgentLoop. Create `tests/test_a2_instructor.py` and `tests/test_a4_crawl4ai.py` as standalone verification suites that can be skipped in CI if dependencies not installed.
+After S7, Phase 2 begins. Full plan in `/root/alex_notes/hive-office_main-system_implementation_plans.md`. Summary in STATUS.md. Build order starts with A.2 (Instructor), then A.3, B.1, A.1 (S7 already done), B.2, HT.1...
 
-- **Proactive CLI Commands:** The `/budget-status` and `/emergency-stop` commands are routed through the system message handler. They provide a vital "dead man's switch" for the user to halt background operations without needing to kill the VPS process.
+---
+
+## Architecture Quick Reference
+
+See VISION.md for full architecture. Short version:
+
+```
+Hive-Queen  (LAW, root, crowned)
+├── Hive-Teams     (multi-worker collaborative workflows — Phase 2)
+│   ├── Research-Team (STORM, HT.2)
+│   └── Writing-Team  (co-writer bridge, HT.3)
+├── Workers
+│   ├── Temps       (ephemeral, one task, self-terminate)
+│   └── Consorts    (promoted Temps, persistent memory/workers/{name}/)
+└── Skill Forge (S5) — Queen creates reusable skills
+```
+
+**Two execution modes (always know which you're using):**
+
+| | Tool | Scope | Gate |
+|---|---|---|---|
+| Host shell | `exec` | Root on VPS. Permanent. | SB.1 Tier 0/1 — gated |
+| Sandbox | `docker_exec` | Ephemeral container. Isolated. | Always free (container IS the gate) |
+
+**Key files:**
+
+| File | Role |
+|---|---|
+| `hive/agent/loop.py` | AgentLoop — central ReAct engine |
+| `hive/agent/tools/gate.py` | SB.1 tiered gate — Tier 0/1/2 classification |
+| `hive/agent/tools/registry.py` | ToolRegistry — all tool exec passes through here |
+| `hive/agent/worker/registry.py` | WorkerRegistry — concurrency, lifecycle, spawn_worker_and_wait |
+| `hive/agent/tools/worker_tools.py` | spawn / spawn_pipeline tools |
+| `hive/agent/budget.py` | BudgetTracker — daily + per-worker USD limits |
+| `hive/agent/circuit_breaker.py` | SHA256 action + error loop detection |
+| `hive/config/schema.py` | All config models — SecretStr on all credentials |
+| `hive/agent/context.py` | Context builder — system prompt assembly |
+| `hive/agent/consolidation.py` | Signal-based memory write |
+| `hive/bus/` | MessageBus — async pub/sub routing |
+| `hive/audit/` | AuditLogger — JSONL event stream |
+
+---
+
+## Builder Lessons & Traps (Agent Memory Bank)
+
+### Agent Loop Architecture
+- The agent loop is ReAct (Reason + Act). Max 20 iterations. Tool calls are JSON-structured.
+- `ToolRegistry.execute()` is the chokepoint — ALL tools from ALL agents pass through it. The SB.1 gate lives here. Add new tools to the registry; never call them directly.
+- `AgentLoop._set_tool_context()` **must** include any tool that publishes bus messages. Missing from here → messages silently go to `"cli:direct"` (a dead channel). Fixed for `SpawnPipelineTool` after discovering this the hard way.
+- New Tier 1 tool categories must be added to BOTH `gate.py` and `SECURITY.md`.
+
+### Memory Architecture
+- Two layers: core (`queen-alpha/workspace/`, git-tracked) vs personal data (`~/.hive/workspace/`, wipeable).
+- Identity files always loaded; other memory sections loaded on-demand by retrieval relevance.
+- `report_task` is the Queen's self-learning mechanism — signal → consolidation → memory write.
+- 6 signal types: `workflow`, `failure`, `correction`, `decision`, `pattern`, `skill_created`.
+
+### Session Architecture
+- JSONL DAG sessions. Each message is a node with `parent_id`.
+- `build_context()` reconstructs the branch for the LLM.
+- `compact()` embeds summaries in the tree — reduces token cost on long sessions.
+
+### Worker Delegation (S4) & Pydantic DMZ
+- `WorkerLoop` is a subclass of `AgentLoop` with restricted tools.
+- Workers receive: `docker_exec`, `web_search`, `read_file`, `write_file`, `report_task`. Not `exec`, `spawn`, `message`.
+- Worker ↔ Queen boundary: `WorkerOrder` + `WorkerReport` Pydantic models. External content that workers scrape is serialised into bounded schema fields before re-entering Queen's context. Prompt injection cannot become an instruction.
+- **The fire-and-forget trap:** `spawn_worker()` returns `WorkerReport(status=PENDING)` immediately. If pipeline code checks `status != "completed"` against a fire-and-forget call, it always fails. Use `spawn_worker_and_wait()` for sequential pipeline steps.
+- **Context wiring rule:** Any tool that produces background bus messages must have `set_context(channel, chat_id)` called per-message in `AgentLoop._set_tool_context()`.
+
+### Security Gate (SB)
+- Gate is in `ToolRegistry.execute()` — code, not persona. LLM cannot reason around it.
+- Tier 0 = hard reject. Tier 1 = deferred return (LLM must call `session_approve`). Tier 2 = always free.
+- Admin-channel `APPROVE <category>` intercepts BEFORE the LLM — `registry.pre_approve()` called directly.
+- `channel_role` in `InboundMessage.metadata` is always overwritten by config. Cannot be spoofed.
+- **SB.4 known flaw:** Workspace-constraint check in `gate.py` step 4 can short-circuit the script first-run SHA256 gate for workspace-path scripts. Low priority until HT.4 (Flow-Dev). Don't mark it fixed.
+- Session approvals (SB.1) are turn-scoped: wiped when Queen finishes processing the current message.
+
+### Skill Forge (S5)
+- Separation of concerns: code generation (workers + docker_exec) is separate from skill packaging (forge tool).
+- `SkillForgeTool` validates kebab-case names (`^[a-z0-9-]+$`), enforces YAML frontmatter, atomically writes. Rollback on error: partial directories are `shutil.rmtree`'d.
+- Skills live: system (`hive/skills/`) vs user-created (`~/.hive/workspace/skills/`). User skills take priority (workspace-first loading).
+
+### Safety Rails (S6)
+- `BudgetTracker` uses `asyncio.Lock` for concurrent `add_cost` writes. State persisted in `.budget_state.json`.
+- Day rollover: `_load_state()` checks today's date vs persisted date. Mismatch → clean slate.
+- Budget gate is `>=` (not `>`). $1.00 / $1.00 daily = halted.
+- `CircuitBreaker` hashes `(tool_name, arguments)` with SHA256. Hash changes on ANY argument change → counter resets. Counter only tracks sequential identical calls.
+- The MagicMock trap: `litellm.completion_cost()` must return a `float`. Generic mocks fail `isinstance` guard in `loop.py`. Use specific return values in tests.
+
+### Phase 2 Navigation Rules (added 2026-02-25)
+- **Canonical strategic doc:** `/root/alex_notes/hive-office_main-system_implementation_plans.md`
+- **WorkerReport schema conflict before A.2:** Reconcile existing `hive/agent/worker/schema.py` `WorkerReport` with the Instructor plan's fields BEFORE implementing A.2. Don't create two parallel schemas.
+- **Config additions needed:** `stream_token: SecretStr` (A.1), `n8n_api_key: SecretStr` (B.1), `docling_url: str` (B.2). Add to `hive/config/schema.py`.
+- **Port map:** 5678=n8n, 5001=Docling, 9100=S7 stream, 8384=Syncthing. No current conflicts.
+- **Consort promotion path:** `memory/workers/{name}/` is documented in S4 design but verify `initialize_memory_hierarchy()` creates this before HT.4.
+- **STORM/dspy/Gemini triple (HT.2):** Test `STORMWikiRunner` with `gemini/gemini-flash` in isolation BEFORE building ResearchTeam. STORM defaults to OpenAI model names.
+- **A-track test-before-ship:** A.2 (Instructor) and A.4 (Crawl4AI) bring large dependencies. Create standalone test files that can be skipped in CI before wiring into the production loop.
+
+### Async Patterns
+- All gateway, channel, and bus operations are `asyncio`-native. No blocking I/O.
+- `asyncio.create_task()` is fire-and-forget — the task runs when the event loop yields. Tests need `await asyncio.sleep(0)` looped a few times to drain pending tasks before asserting.
+- File I/O in `BudgetTracker` uses `asyncio.to_thread` — correct pattern for blocking disk reads.
+
+---
+
+## Environment Reference
+
+| Component | Value |
+|---|---|
+| OS | Ubuntu Linux 6.8.0 |
+| Python | 3.12.3 |
+| Venv | `/root/queen-alpha/.venv/` |
+| hive CLI | `pip install -e ".[dev]"` in venv |
+| Config | `~/.hive/config.json` (chmod 600) |
+| Tests | 504/504 passing (2026-02-25) |
+| Queen model | `gemini/gemini-3-pro-preview`, maxTokens 65536 |
+| Git identity | Lexi-Energy (noreply) |
+
+**Activate venv:**
+```bash
+source /root/queen-alpha/.venv/bin/activate
+```
+
+---
+
+## Builder Reports (session logs)
+
+Detailed session findings (bugs fixed, test coverage added, architectural decisions) are in:
+`/root/Builder_Reports/` — named `YYYY-MM-DD_Session-Description.md`
+
+Most recent: `2026-02-25_Spawn-Fix-and-S5-S6-Audit.md`
+
+---
+
+*ANTIGRAVITY.md is the living memory of every builder who has worked on this repo.*
+*Keep it honest. Keep it current. Update it when something breaks your assumptions.*

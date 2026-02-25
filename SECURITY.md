@@ -1,7 +1,8 @@
 # Security Architecture
 
-**Last Updated:** 2026-02-21
-**Full analysis:** `reference-repos/pydantic-governance.md` (Security Officer document)
+**Last Updated:** 2026-02-25
+**Builder entry point:** [ANTIGRAVITY.md](ANTIGRAVITY.md) — read this before making any security-related changes.
+**Full policy:** This file. **Implementation detail:** `hive/agent/tools/gate.py`, `hive/agent/tools/registry.py`
 
 ---
 
@@ -223,28 +224,19 @@ precedence once the first message arrives.
 
 ---
 
-## Session Resumption (SB.3 — planned)
+## Session Resumption (SB.3 — IMPLEMENTED)
 
-When a new session starts and Queen has pending tasks in memory, she MUST:
+**Code:** `hive/agent/loop.py` — injects `[SYSTEM SECURITY OVERRIDE: Gateway restarted...]` on the first message of a loaded session.
 
-1. Describe the pending tasks
-2. Ask "shall I continue?" explicitly
-3. Wait for a response before touching any tool
-
-This is a code check in session initialisation, not a memory instruction. It prevents the
-confirmed incident where a 2-character Telegram message triggered 9 tool calls because Queen
-loaded a pending task from memory and interpreted the message as "continue."
+Forces Queen to summarise pending tasks and halt before executing anything. This prevents the confirmed incident where a 2-character Telegram message triggered 9 tool calls (file writes, exec, docker_exec) via memory resumption.
 
 ---
 
-## Skill First-Run Gate (SB.4 — planned)
+## Skill First-Run Gate (SB.4 — IMPLEMENTED, known flaw)
 
-A skill script file (`.py` / `.sh` registered as a skill) requires explicit Tier 1 approval
-the first time it runs. This prevents self-written skills from auto-executing and
-auto-scheduling themselves via cron without human review.
+**Code:** `hive/agent/tools/gate.py` — SHA256 hashes script file content. First run requires Tier 1 approval. Hash stored in `approved_hashes`. Subsequent runs of unchanged script pass without re-approval.
 
-The `if not os.path.exists("/sandbox")` Docker bypass pattern must be blocked in the AST
-filter — the sandbox must be structural, not a runtime check a skill can opt out of.
+**Known flaw (low priority):** The workspace-constraint check in `gate.py` step 4 can short-circuit the script first-run check for workspace-path scripts. This means a script written to `~/.hive/workspace/` and executed via host `exec` may bypass the hash gate. Fix deferred until HT.4 (Flow-Dev consort) ships host-exec scripts that make this matter practically.
 
 ---
 
@@ -316,22 +308,23 @@ git log --all -p | grep -E '(AIzaSy|bot[0-9]+:|github_pat_)'
 
 ---
 
-## Build Order
-
-SB must complete before S4. Workers inherit the ToolRegistry gate — if the gate isn't there
-before S4 ships, every worker gets an ungated root shell.
+## Implementation Summary (verified 2026-02-25)
 
 ```
-SB.1  ToolRegistry tiered gate       ✅ DONE — commits c98aff5 + 7fe2d7c
-SB.2  Channel role config + routing  ✅ DONE — commits c8f9e61 + 37ea730
-SB.3  Session resumption check       ← next
-SB.4  Skill first-run approval
+SB.1  ToolRegistry tiered gate            ✅ DONE — gate.py + registry.py
+SB.2  Channel roles + Discord routing     ✅ DONE — channels/ + loop.py
+SB.3  Session resumption check            ✅ DONE — loop.py
+SB.4  Skill first-run SHA256 gate         ✅ DONE — gate.py (known flaw documented above)
+PY.1  SecretStr on all credentials        ✅ DONE — config/schema.py
+PY.2  SSRF private-IP blocklist           ✅ DONE — tools/web.py
+PY.3  Field bounds (ge/le) on numerics    ✅ DONE — config/schema.py
+PY.4  Literal on enum fields              ✅ DONE — config/schema.py
+PY.5  ConfigDict(extra='forbid')          ✅ DONE — config/schema.py
 
-[parallel] PY.1–PY.5  Pydantic hardening  ← no dependencies, ~2 hours total
-
-S4    Hive Manager  ← after SB.1 (gate is live, can start)
-      + Pydantic DMZ (WorkerOrder + WorkerReport) at spawn layer
+S4    Pydantic DMZ (WorkerOrder + WorkerReport at spawn boundary) ✅ DONE
 ```
+
+**Remaining open:** Tailscale, before any external-facing exposure.
 
 ---
 
@@ -339,19 +332,17 @@ S4    Hive Manager  ← after SB.1 (gate is live, can start)
 
 - [x] `~/.hive/config.json` permissions: `chmod 600`
 - [x] `allowFrom` configured for all enabled channels
-- [x] SB.1 approval gate in `ToolRegistry.execute()` — live and tested (473 tests)
-- [x] SB.2 channel roles in config (`role: Literal["user","admin","notification"]` on all 9 channels)
-- [x] SB.2 admin-channel APPROVE intercept — live and tested
-- [x] SB.2 Discord per-channel routing (`channel_routes`) — live and tested
-- [x] SB.2 notification-channel inbound drop — enforced in code, not just convention
-- [x] Configure `role: admin` on at least one channel in `~/.hive/config.json`
-- [x] SB.3 session resumption check — live and tested
-- [x] SB.4 skill first-run gate — live and tested *(Note: SB.4 currently bypassed for workspace scripts via `gate.py` step 4 short-circuit; slated for post-S4 architectural review).*
-- [x] PY.2 `SecretStr` for environment variables
-- [x] PY.1 `SecretStr` on all credential fields
-- [x] PY.2 SSRF validator on `web_fetch`
-- [x] Telegram bot token not committed to git
-- [x] LLM provider API key not committed to git
+- [x] SB.1 approval gate in `ToolRegistry.execute()` — 738 tests
+- [x] SB.2 channel roles (`user`/`admin`/`notification`) on all 9 channel configs
+- [x] SB.2 admin-channel APPROVE intercept before LLM
+- [x] SB.2 Discord per-channel routing (`channel_routes`)
+- [x] SB.2 notification-channel inbound drop — enforced in code
+- [x] SB.3 session resumption security override
+- [x] SB.4 skill first-run SHA256 gate *(known flaw: workspace-path short-circuit — see above)*
+- [x] PY.1 SecretStr on all credential fields
+- [x] PY.2 SSRF private-IP blocklist on `web_fetch`
+- [x] PY.3-5 Field bounds, Literal types, ConfigDict(extra='forbid')
+- [x] Telegram bot token not in git
+- [x] LLM API key not in git
 - [x] `pip-audit` clean
-- [ ] Tailscale configured before any external-facing exposure
-```
+- [ ] **Tailscale configured before any external-facing exposure**
