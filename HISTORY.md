@@ -119,10 +119,24 @@ Token tracking, daily budget gates ($10 default), per-worker limit ($0.50 defaul
 
 ---
 
-### S7 — Emission Stream (Next)
-*Status: Not started*
+### S7 — Emission Stream
+*Commit `61a467f` · 523 tests · tag: `queen-alpha_S7_emission_stream`*
 
-WebSocket live observation. Read-only. Port 9100. Closes Phase 1.
+Final Phase 1 milestone. Real-time system telemetry over WebSocket (`ws://127.0.0.1:9100`). The stream publishes tool calls, LLM calls, worker lifecycle events, and budget updates to any connected observer via `hive stream`.
+
+**Architecture decision: EventEmitter separate from MessageBus.** MessageBus handles channel I/O (Telegram messages, Discord messages). AuditLogger handles persistent disk writes. The new `EventEmitter` in `hive/bus/emitter.py` handles in-memory fan-out telemetry. Each concern stays clean. Mixing them would have coupled observability to channel routing in a way that'd be painful to unpick later.
+
+**Fan-out design:** Each WebSocket client gets its own bounded `asyncio.Queue` (1000 events). Overflow drops oldest, never blocks the emitter. The emitter can have 0 to N subscribers — adding a client adds a queue subscription; disconnecting removes it. Lock is per-emitter, not global.
+
+**Tap points are optional (`emitter=None` default everywhere):** All 4 tap points (ToolRegistry, AgentLoop, WorkerRegistry, BudgetTracker) accept `emitter=None`. When no emitter is wired, zero overhead. When wired, each taps a `from hive.bus.emitter import HiveEvent` inside the `if self._emitter:` block — lazy import, no coupling at module load.
+
+**Non-blocking `start()` / blocking `serve_forever()` split:** Tests need to start a server, poke it, and stop it fast. A single `serve_forever()` that blocks would force every test to manage a background task. The split (`start()` sets up the server, `serve_forever()` blocks) makes tests clean and gateway integration simple.
+
+**Liveness check on timeout:** The client handler polls `queue.get()` with a 0.5s timeout. On timeout, it checks `websocket.close_code is not None` — if the client is gone, break. Otherwise continue. This was discovered through iterative debugging: the websockets library doesn't raise `ConnectionClosed` until you *send* something, so an idle stream with a disconnected client would hang for up to 45s (the ping timeout) without this check.
+
+**`hive stream` CLI:** Color-coded by event type (cyan=tool, yellow=llm, magenta=worker, green=budget, blue=system). Human-readable by default, `--json` for raw. Connection refused message tells you the gateway isn't running.
+
+**Phase 1 is now closed.** Full test suite: 523 passing.
 
 ---
 
@@ -130,7 +144,9 @@ WebSocket live observation. Read-only. Port 9100. Closes Phase 1.
 
 Phase 2 is the Hive-Teams and integrations. See `STATUS.md` for the current roadmap.
 
-Three tracks: A (Foundation: Instructor, ai-bom, Crawl4AI), B (Integrations: n8n, Docling, Dropzone), C (Hive-Teams: framework, Research-Team, Writing-Team, Flow-Dev).
+Phase 2 is the Hive-Teams and integrations. See `STATUS.md` for the current roadmap.
+
+Three tracks: A (Foundation: Instructor, ai-bom, Crawl4AI), B (Integrations: n8n, Docling, Dropzone), C (Hive-Teams: framework, Research-Team, Writing-Team, Flow-Dev). First recommended step: **A.2 Instructor integration** — structured LLM output unblocks all downstream structured data work.
 
 Full strategic plan: `/root/alex_notes/hive-office_main-system_implementation_plans.md`
 
