@@ -484,25 +484,181 @@ Gate tag: `queen-alpha_S4_hive_manager`
 - `/health` command — VPS system health (disk, memory, processes, services)
 - "Hive-Teams" — Alex's concept for the next modular layer (solutions + flows). Not yet specced.
 
-**Post-S7 roadmap (from vision doc):**
-- S8: SFTP watcher (file dropzone)
-- S9: Gmail API (inbox sentinel)
-- S10: Calendar integration
-- S11: PDF processor (extract text/tables)
-- S12: Web scraper (Playwright worker)
-- S13: HTTP tool (generic API calls)
-- S14: Invoice extraction workflow (German PDFs)
-- S15: Email triage workflow (multi-account)
-- S16: Research aggregation workflow
+**Post-S7 roadmap — SUPERSEDED.** See Phase 2 section below.
+
+**Post-S7 roadmap (from vision doc, ARCHIVED - replaced by Phase 2 tracks):**
+- ~~S8: SFTP watcher~~ → B.3 Dropzone (Syncthing-based)
+- ~~S9: Gmail API~~ → B.1 n8n with Gmail credential isolation
+- ~~S10: Calendar integration~~ → deferred Phase 3
+- ~~S11: PDF processor~~ → B.2 Docling
+- ~~S12: Web scraper~~ → A.4 Crawl4AI
+- ~~S13: HTTP tool~~ → subsumed by B.1 n8n trigger_workflow
+- ~~S14~~ → after B.1 + B.2 proven
+- ~~S15~~ → after HT.3 Writing-Team
+- ~~S16~~ → HT.2 Research-Team
 
 **Vision alignment:**
 Build what OpenClaw should have been: 3 channels that work perfectly > 15 that sort-of work.
 10 battle-tested skills > 1,700 unvetted. Queen writes her own tools. Security and cost control
 are structural advantages, not features.
 
-## Open questions for next session
+## Open questions (resolved + pending)
 
-- First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)? — deferred, not blocking S4
-- Hive-Teams spec: when does Alex want to detail this? — post-S7, not blocking S4
-- **Worker progress pings: verbose-only (recommended) or on by default?** — UX call for Alex, needed before S4.3
-- ~~S4.1 detail: should WorkerLoop be subclass or delegator?~~ — **RESOLVED: subclass of AgentLoop**
+- First-boot `/onboard` nudge: proactive (Queen asks) or passive (suggested in system prompt)? — deferred, not blocking anything now
+- Hive-Teams spec: → **RESOLVED**: specced in `alex_notes/hive-office_main-system_implementation_plans.md`. See Phase 2 below.
+- Worker progress pings: verbose-only (recommended) or on by default? — UX call for Alex, low priority
+
+---
+
+## Phase 2 Roadmap — Post-S6 (as of 2026-02-25)
+
+**Strategic doc:** `/root/alex_notes/hive-office_main-system_implementation_plans.md`
+**Baseline:** S0-S6 complete, 504 tests passing, spawn bugs fixed.
+
+Three tracks run in parallel where dependencies allow. Full detail in the strategic doc — this is the authoritative summary for future instances.
+
+---
+
+### Track A — Foundation
+
+#### A.1 — S7: Emission Stream (WebSocket live observation)
+**Status:** 🔲 Not started  
+**Effort:** 6-8h  
+**Goal:** Real-time JSON event stream over WebSocket (port 9100). Tool calls, worker lifecycle, budget heartbeat. Read-only. `hive stream` CLI command.  
+**Key files to create:** `hive/gateway/stream.py`  
+**Key constraint:** Localhost-only binding by default. SSH tunnel for remote. No control channel.  
+**Closes Phase 1 (S0-S7).**
+
+#### A.2 — Instructor Integration
+**Status:** 🔲 Not started  
+**Effort:** 2-4h  
+**Goal:** `instructor.from_litellm(completion)` wraps LLM calls. Enforces Pydantic schemas on WorkerReport, ConsolidationSignal. Retries on validation failure (max 3). Falls back to raw text on retry exhaustion.  
+**Why first:** Everything downstream (HT.1, HT.2) uses structured TeamReport. Do this before building teams.  
+**Known risk:** LiteLLM + Instructor + Gemini triple — test before wiring into production loop.
+
+#### A.3 — ai-bom Compliance Scanning Skill
+**Status:** 🔲 Not started  
+**Effort:** 2-3h  
+**Goal:** `ai-bom scan` on codebase + n8n workflows. Weekly cron. `/compliance` command. CycloneDX JSON in audit dir.  
+**Quick win. No blockers.**
+
+#### A.4 — Crawl4AI Web Scraping Skill
+**Status:** 🔲 Not started  
+**Effort:** 3-4h  
+**Goal:** Clean content extraction — article text, tables, JS-rendered pages. Async batch. Rate-limited. 24h disk cache.  
+**Key constraint:** Playwright binary ~500MB. Headless Chromium ~200-500MB RAM per page. Max 3-5 simultaneous.  
+**Required for HT.2 (Research-Team STORM backend).**
+
+---
+
+### Track B — Integrations
+
+#### B.1 — n8n Deployment + Queen↔n8n Bridge
+**Status:** 🔲 Not started  
+**Effort:** 4-6h  
+**Goal:** n8n in Docker. Queen gets `trigger_workflow` + `list_workflows` tools. First workflow: ping test. Second: Gmail check. Credentials never in `~/.hive/config.json`.  
+**Port:** 5678 (localhost only). SSH tunnel for UI.  
+**Key tools:** `hive/agent/tools/n8n.py`  
+**Unlocks external workflows. Block on this before inbox sentinel, bookkeeping, calendar.**
+
+#### B.2 — Docling Document Ingestion Worker
+**Status:** 🔲 Not started  
+**Effort:** 4-6h  
+**Goal:** `docling-serve` in Docker (port 5001). Queen skill: `parse_document`. Supports PDF, DOCX, PPTX, XLSX, HTML. PII scrubbing (regex-based, flag not auto-remove).  
+**Key constraint:** AI models use 2-4GB RAM — set `--memory=4g`. Audio (Whisper) deferred to Phase 3.  
+**Blocks B.3 (dropzone).**
+
+#### B.3 — Dropzone Watcher (File Ingestion Trigger)
+**Status:** 🔲 Not started  
+**Effort:** 6-8h  
+**Goal:** Syncthing syncs `HIVE_INBOX/` from Alex's machine to VPS `~/.hive/inbox/`. Watcher daemon routes files by subfolder intent: `summarize/`, `invoice/`, `research/`. Processed files move to `processed/`. Errors to `_errors/`.  
+**Key constraint:** Poll-based (not inotify — more reliable with Syncthing). Wait for file stability (size unchanged ≥ 3s) before processing.  
+**Depends on B.2.**
+
+---
+
+### Track C — Hive-Teams
+
+#### HT.1 — Hive-Team Framework Spec
+**Status:** 🔲 Not started  
+**Effort:** 8-12h  
+**Goal:** `HiveTeam` base class. DAG-of-steps execution engine. Team-level budget cap (sub-budget of S6 daily limit). Team-level learning (`memory/teams/{name}/`). Approval gates that pause + notify + resume. `delegate_to_team` Queen tool.  
+**Key files:** `hive/teams/base.py`, `hive/teams/registry.py`  
+**MUST come before any specific team. All teams are instances of this.**
+
+#### HT.2 — Research-Team (STORM-powered)
+**Status:** 🔲 Not started  
+**Effort:** 10-16h  
+**Goal:** 3-step workflow: perspective discovery → simulated research conversations → article writing. STORM engine (`pip install knowledge-storm`). BraveRM for web retrieval (free tier 2000 queries/month). $2.00 budget cap per run. Structured TeamReport (Instructor).  
+**Model routing:** Flash for research, Pro for writing.  
+**Key dependency:** dspy (STORM's internal framework) — test LiteLLM+dspy+Gemini triple carefully.  
+**Depends on HT.1, A.2. A.4 (Crawl4AI) improves source quality but optional.**
+
+#### HT.3 — Writing-Team Integration (co-writer-hive → Hive-Team)
+**Status:** 🔲 Not started (blocked on co-writer Phase 2)  
+**Effort:** 8-12h  
+**Goal:** co-writer-hive exposes a localhost API. Queen wraps it as a Hive-Team. Brief in, draft out, approval loop through Telegram/Discord. Hybrid research: Research-Team (HT.2) feeds current data into Writing-Team session.  
+**Key constraint:** Don't integrate a broken co-writer. P2.4 Writer specialization must be working first.  
+**Depends on HT.1, HT.2, co-writer Phase 2 progress.**
+
+#### HT.4 — Flow-Dev Consort (Internal Python Workflows)
+**Status:** 🔲 Not started  
+**Effort:** 6-8h  
+**Goal:** Named persistent worker (Consort). Writes Python scripts for internal automation. Tests in Docker (max 3 attempts). Registers approved scripts as skills or cron jobs. Scope: 50-200 line scripts for VPS maintenance. NOT n8n workflows, scrapers, or full apps.  
+**Key files:** `memory/workers/flow-dev/profile.md`, script template in `~/.hive/workspace/flows/`  
+**Depends on S4, S5. Consort promotion pattern from S4 design doc.**
+
+---
+
+### Build Order (recommended)
+
+| # | Plan | Track | Effort | Why now |
+|---|---|---|---|---|
+| 1 | **A.2** Instructor | A | 2-4h | Foundation for everything. No blockers. |
+| 2 | **A.3** ai-bom | A | 2-3h | Quick win. Compliance from day one. |
+| 3 | **B.1** n8n deploy | B | 4-6h | Unlocks external workflows. |
+| 4 | **A.1** S7 Stream | A | 6-8h | Closes Phase 1. Observability. |
+| 5 | **B.2** Docling | B | 4-6h | Document ingestion. |
+| 6 | **HT.1** Team Framework | C | 8-12h | Required before any team. |
+| 7 | **A.4** Crawl4AI | A | 3-4h | Prep for STORM. |
+| 8 | **HT.2** Research-Team | C | 10-16h | First Hive-Team. The product starts here. |
+| 9 | **B.3** Dropzone | B | 6-8h | Builds on B.2. |
+| 10 | **HT.4** Flow-Dev | C | 6-8h | Internal automation consort. |
+| 11 | **HT.3** Writing-Team | C | 8-12h | co-writer integration. Last. |
+
+**Total: ~65-95 hours of implementation.**
+
+---
+
+### Deferred (known gaps, not in Phase 2 scope)
+
+| Item | Reason | When |
+|---|---|---|
+| Inbox Sentinel (email triage) | Needs B.1 + B.2 + HT.3 first | After HT.3 |
+| Calendar integration | Needs n8n + scheduling strategy | Phase 3 |
+| Web dashboard (React) | A.1 builds the stream; dashboard is a separate project | Phase 3 |
+| Multi-tenancy | One Queen per user until PMF | Phase 4+ |
+| GPU infra (VibeVoice, local LLMs) | Not on current VPS budget | Phase 3+ |
+| n8n-Architect consort | Needs B.1 stable first | After B.1 proven |
+| Invoice extraction workflow | Needs B.2 + B.1 + custom prompts | After B.2 proven |
+| LangFuse observability | S6+SA cover it. Dashboards later. | Phase 3 |
+| Audio (Whisper) | Needs GPU or expensive CPU time | Phase 3 |
+
+---
+
+### Gaps vs Alex's Plan (builder audit, 2026-02-25)
+
+Reviewed against `/root/alex_notes/hive-office_main-system_implementation_plans.md`:
+
+1. **Instructor schemas in plan conflict with existing schemas.** Plan's `WorkerReport` adds `artifacts`, `lessons`, `token_cost` fields. Existing `hive/agent/worker/schema.py` `WorkerReport` has different fields. Reconcile before A.2. Don't create two `WorkerReport` classes.
+
+2. **n8n auth token** must be added to `hive/config/schema.py` as `SecretStr`. The strategic doc shows it as `config.n8n_api_key` — ensure this lands in the Pydantic model, not a hardcoded env var.
+
+3. **S7 Stream auth** — plan says "require bearer token from config.json" when not localhost. This means a new `stream_token: SecretStr` field in config. Add to schema before A.1.
+
+4. **Consort promotion** is described in S4 design decisions but never implemented. `memory/workers/` directory exists in docs but may not be created on boot. Verify before HT.4.
+
+5. **Port map** needs documenting centrally. Currently scattered: 5678 (n8n), 5001 (Docling), 9100 (stream), 8384 (Syncthing). Add a `## Port Allocation` section to CLAUDE.md before B.1.
+
+6. **SB.4 logic flaw** (noted in SB.4 checklist entry) — script-check short-circuit via workspace constraint — still not fixed. Low priority, but document the known state before HT.4 (Flow-Dev) ships scripts that run through this gate.
+

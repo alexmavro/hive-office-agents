@@ -96,4 +96,29 @@ As a security-aware project manager, you must follow this exact sequence for eve
 - **The MagicMock Trap:** When writing E2E tests with `pytest`, be extremely careful with `MagicMock` usage in `litellm` calls. If a mock returns an object that doesn't strictly follow the expected `completion_cost` return types (or if it's a generic mock that `isinstance(x, float)` fails on), it will crash the `AgentLoop`. We added `isinstance` guards in `loop.py` to prevent this.
 - **Circuit Breaker Hashing:** The breaker uses SHA256 hashes of `(tool_name, arguments)` and error strings. To trip correctly, the hash must be reset only when the *content* of the tool call or the *success/failure state* changes. A single successful "message" call usually resets the action loop.
 - **Budget Gate Atomicity:** Spend levels are persisted in `~/.hive/workspace/.budget_state.json`. The `BudgetTracker` uses an `asyncio.Lock` to ensure that concurrent workers adding cost don't cause race conditions in the spend total.
+
+### Phase 2 — Forward Navigation Rules (added 2026-02-25)
+
+**You are entering Track A → B → C implementation. Read this section first.**
+
+- **Canonical strategic doc:** `/root/alex_notes/hive-office_main-system_implementation_plans.md` — 1186 lines, 12 implementation plans across 3 tracks. If you are starting any A/B/HT plan, read the relevant section there first. STATUS.md contains the summary; the strategic doc has the full spec.
+
+- **`WorkerReport` schema conflict (action required for A.2):** The strategic doc's `WorkerReport` in `hive/schemas/structured.py` adds `artifacts`, `lessons`, `token_cost` fields. The existing `hive/agent/worker/schema.py` `WorkerReport` has `status`, `output`, `error`, `step_summary`. These are **different classes with the same name**. Before implementing A.2 (Instructor), reconcile: extend the existing class or create a new `InstructorWorkerReport` subclass. Do NOT create two parallel `WorkerReport` schemas — that will silently break the spawn pipeline.
+
+- **Config schema additions needed before building:** A.1 needs `stream_token: SecretStr`. B.1 needs `n8n_api_key: SecretStr`. B.2 needs `docling_url: str = "http://localhost:5001"`. Add to `hive/config/schema.py` first. Never hardcode these values.
+
+- **Port allocation (do not conflict):** 5678 = n8n, 5001 = Docling, 9100 = S7 stream, 8384 = Syncthing. Add a `## Port Allocation` table to CLAUDE.md before B.1 deployment.
+
+- **Consort promotion is only documented, not implemented.** `memory/workers/` is referenced in S4 design decisions but the directory may not be initialized on boot. Before HT.4 (Flow-Dev consort), verify `initialize_memory_hierarchy()` creates `workers/` and test the full promotion path.
+
+- **HT.1 framework complexity trap:** The spec says "if it takes 500 lines to define a team, the abstraction is wrong." `HiveTeam` base class must be simple. Steps pass output forward through the pipeline — workers in a team do NOT communicate directly. The Queen is the only coordinator.
+
+- **STORM/dspy/LiteLLM/Gemini triple (HT.2 risk):** STORM defaults to OpenAI model names internally. STORM v1.1.0 added LiteLLM support. Test `STORMWikiRunner` with `gemini/gemini-flash` BEFORE building the ResearchTeam class — if this combination breaks, the entire HT.2 plan needs to change.
+
+- **n8n credential isolation is non-negotiable (B.1):** Gmail OAuth token and any other external service credentials must live in n8n's credential store, NOT in `~/.hive/config.json`. The Queen triggers workflows by webhook ID. She never receives raw credentials. If a plan asks you to store credentials in `config.json`, stop and reconsider.
+
+- **SB.4 logic flaw still open:** The workspace-constraint check in `gate.py` can short-circuit the script first-run approval check. Low priority until HT.4 ships scripts that run through this gate. Document it — don't pretend it's fixed.
+
+- **Test-before-ship rule for A-track:** A.2 and A.4 involve large new dependencies (Instructor, Playwright). Do a dry-run import and integration test BEFORE wiring into the production AgentLoop. Create `tests/test_a2_instructor.py` and `tests/test_a4_crawl4ai.py` as standalone verification suites that can be skipped in CI if dependencies not installed.
+
 - **Proactive CLI Commands:** The `/budget-status` and `/emergency-stop` commands are routed through the system message handler. They provide a vital "dead man's switch" for the user to halt background operations without needing to kill the VPS process.
