@@ -1,6 +1,7 @@
 """CLI commands for hive."""
 
 import asyncio
+import json
 import os
 import signal
 from pathlib import Path
@@ -20,6 +21,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from hive import __version__, __logo__
 from hive.config.schema import Config
+from hive.cli.skill_utils import skill
 
 app = typer.Typer(
     name="hive",
@@ -276,13 +278,13 @@ def _make_provider(config: Config):
 
     from hive.providers.registry import find_by_name
     spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
+    if not model.startswith("bedrock/") and not (p and p.api_key.get_secret_value()) and not (spec and spec.is_oauth):
         console.print("[red]Error: No API key configured.[/red]")
         console.print("Set one in ~/.hive/config.json under providers section")
         raise typer.Exit(1)
 
     return LiteLLMProvider(
-        api_key=p.api_key if p else None,
+        api_key=p.api_key.get_secret_value() if p else None,
         api_base=config.get_api_base(model),
         default_model=model,
         extra_headers=p.extra_headers if p else None,
@@ -334,23 +336,35 @@ def gateway(
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
 
+    # Create worker registry
+    from hive.agent.worker.registry import WorkerRegistry
+
+    # S7: Create emission stream event emitter
+    from hive.bus.emitter import EventEmitter
+    emitter = EventEmitter() if config.stream.enabled else None
+
+    worker_registry = WorkerRegistry(config, emitter=emitter)
+
     # Create agent with cron service
     agent = AgentLoop(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        fallbacks=config.agents.defaults.fallbacks,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
-        brave_api_key=config.tools.web.search.api_key or None,
+        brave_api_key=config.tools.web.search.api_key.get_secret_value() or None,
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         audit=audit,
+        worker_registry=worker_registry,
+        emitter=emitter,
     )
     
     # Set cron callback (needs agent)
@@ -428,6 +442,7 @@ def gateway(
                 "gateway_start",
                 pid=os.getpid(),
                 model=config.agents.defaults.model,
+        fallbacks=config.agents.defaults.fallbacks,
                 channels=channels.enabled_channels,
             )
             asyncio.create_task(run_retention(
@@ -453,6 +468,32 @@ def gateway(
                         _run_daily_report_loop(config.audit.report_hour)
                     )
                 )
+
+            # S7: Start emission stream WebSocket server
+            if emitter and config.stream.enabled:
+                from hive.stream.server import StreamServer
+                stream_token = config.stream.token.get_secret_value() or None
+                stream_server = StreamServer(
+                    emitter=emitter,
+                    host=config.stream.host,
+                    port=config.stream.port,
+                    token=stream_token,
+                )
+                # Wire budget heartbeat callback
+                async def _budget_heartbeat_cb() -> dict:
+                    daily, _ = await agent.budget_tracker.get_usage()
+                    return {
+                        "daily_usd": round(daily, 4),
+                        "daily_limit": agent.budget_tracker.daily_limit,
+                        "pct": round(daily / agent.budget_tracker.daily_limit * 100, 1)
+                            if agent.budget_tracker.daily_limit > 0 else 0,
+                    }
+                stream_server.set_budget_callback(_budget_heartbeat_cb)
+                tasks.append(asyncio.create_task(stream_server.serve_forever()))
+                console.print(
+                    f"[green]✓[/green] Stream: ws://{config.stream.host}:{config.stream.port}"
+                )
+
             await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
@@ -467,6 +508,107 @@ def gateway(
 
     asyncio.run(run())
 
+
+@app.command()
+def stream(
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Stream server host"),
+    port: int = typer.Option(9100, "--port", "-p", help="Stream server port"),
+    token: str = typer.Option(None, "--token", "-t", help="Auth token (if required)"),
+    raw: bool = typer.Option(False, "--json", help="Raw JSON output (default: colored)"),
+):
+    """Connect to the live emission stream and observe system events."""
+    import websockets.asyncio.client
+
+    uri = f"ws://{host}:{port}"
+    console.print(f"{__logo__} Connecting to emission stream at {uri}...")
+
+    # Color mapping for event types
+    _COLORS = {
+        "tool_call": "cyan",
+        "llm_call": "yellow",
+        "worker": "magenta",
+        "budget": "green",
+        "system": "blue",
+        "channel": "white",
+    }
+
+    def _format_event(data: dict) -> str:
+        """Format an event for colored terminal display."""
+        etype = data.get("type", "unknown")
+        color = _COLORS.get(etype, "dim")
+        ts = data.get("ts", "")[:19]  # Trim to seconds
+        edata = data.get("data", {})
+
+        if etype == "tool_call":
+            tool = edata.get("tool", "?")
+            ok = "✓" if edata.get("ok") else "✗"
+            ms = edata.get("duration_ms", 0)
+            return f"[{color}]{ts} TOOL  {ok} {tool} ({ms:.0f}ms)[/{color}]"
+        elif etype == "llm_call":
+            model = edata.get("model", "?")
+            t_in = edata.get("tokens_in", 0)
+            t_out = edata.get("tokens_out", 0)
+            cost = edata.get("cost_usd", 0)
+            tools = edata.get("tool_names") or []
+            tool_str = f" → {', '.join(tools)}" if tools else ""
+            return f"[{color}]{ts} LLM   {model} {t_in}→{t_out}tok ${cost:.4f}{tool_str}[/{color}]"
+        elif etype == "worker":
+            event = edata.get("event", "?")
+            name = edata.get("name", "?")
+            active = edata.get("active", "?")
+            return f"[{color}]{ts} WORK  {event} '{name}' (active: {active})[/{color}]"
+        elif etype == "budget":
+            event = edata.get("event", "?")
+            if event == "heartbeat":
+                daily = edata.get("daily_usd", 0)
+                limit = edata.get("daily_limit", 0)
+                pct = edata.get("pct", 0)
+                return f"[{color}]{ts} $$$   heartbeat ${daily:.4f}/${limit:.2f} ({pct:.1f}%)[/{color}]"
+            else:
+                cost = edata.get("cost_usd", 0)
+                daily = edata.get("daily_usd", 0)
+                pct = edata.get("pct", 0)
+                return f"[{color}]{ts} $$$   +${cost:.4f} total=${daily:.4f} ({pct:.1f}%)[/{color}]"
+        elif etype == "system":
+            event = edata.get("event", "?")
+            msg = edata.get("message", "")
+            return f"[{color}]{ts} SYS   {event} {msg}[/{color}]"
+        else:
+            return f"[dim]{ts} {etype} {json.dumps(edata)[:100]}[/dim]"
+
+    async def _connect_and_stream():
+        try:
+            async with websockets.asyncio.client.connect(uri) as ws:
+                # Auth if needed
+                if token:
+                    await ws.send(json.dumps({"type": "auth", "token": token}))
+                    auth_resp = json.loads(await ws.recv())
+                    if auth_resp.get("type") == "error":
+                        console.print(f"[red]Auth failed: {auth_resp.get('data', {}).get('message')}[/red]")
+                        return
+
+                console.print("[green]Connected. Streaming events (Ctrl+C to stop)...[/green]\n")
+
+                async for message in ws:
+                    try:
+                        data = json.loads(message)
+                        if raw:
+                            console.print(message)
+                        else:
+                            console.print(_format_event(data))
+                    except json.JSONDecodeError:
+                        console.print(f"[dim]{message}[/dim]")
+
+        except websockets.exceptions.ConnectionClosed:
+            console.print("\n[dim]Connection closed by server.[/dim]")
+        except ConnectionRefusedError:
+            console.print(f"[red]Cannot connect to {uri}. Is the gateway running?[/red]")
+        except KeyboardInterrupt:
+            console.print("\n[dim]Disconnected.[/dim]")
+        except Exception as e:
+            console.print(f"[red]Stream error: {e}[/red]")
+
+    asyncio.run(_connect_and_stream())
 
 
 
@@ -509,15 +651,18 @@ def agent(
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        fallbacks=config.agents.defaults.fallbacks,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
-        brave_api_key=config.tools.web.search.api_key or None,
+        brave_api_key=config.tools.web.search.api_key.get_secret_value() or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         audit=_audit,
+        daily_usd_budget=config.agents.defaults.daily_usd_budget,
+        worker_usd_limit=config.agents.workers.worker_usd_limit,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -637,7 +782,7 @@ def channels_status():
     
     # Telegram
     tg = config.channels.telegram
-    tg_config = f"token: {tg.token[:10]}..." if tg.token else "[dim]not configured[/dim]"
+    tg_config = f"token: {tg.token.get_secret_value()[:10]}..." if tg.token.get_secret_value() else "[dim]not configured[/dim]"
     table.add_row(
         "Telegram",
         "✓" if tg.enabled else "✗",
@@ -646,7 +791,7 @@ def channels_status():
 
     # Slack
     slack = config.channels.slack
-    slack_config = "socket" if slack.app_token and slack.bot_token else "[dim]not configured[/dim]"
+    slack_config = "socket" if slack.app_token.get_secret_value() and slack.bot_token.get_secret_value() else "[dim]not configured[/dim]"
     table.add_row(
         "Slack",
         "✓" if slack.enabled else "✗",
@@ -727,8 +872,8 @@ def channels_login():
     console.print("Scan the QR code to connect.\n")
     
     env = {**os.environ}
-    if config.channels.whatsapp.bridge_token:
-        env["BRIDGE_TOKEN"] = config.channels.whatsapp.bridge_token
+    if config.channels.whatsapp.bridge_token.get_secret_value():
+        env["BRIDGE_TOKEN"] = config.channels.whatsapp.bridge_token.get_secret_value()
     
     try:
         subprocess.run(["npm", "start"], cwd=bridge_dir, check=True, env=env)
@@ -1003,10 +1148,12 @@ def status():
                 else:
                     console.print(f"{spec.label}: [dim]not set[/dim]")
             else:
-                has_key = bool(p.api_key)
+                has_key = bool(p.api_key.get_secret_value())
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
 
 
+
+app.add_typer(skill, name="skill")
 
 if __name__ == "__main__":
     app()

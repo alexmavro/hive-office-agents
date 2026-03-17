@@ -402,7 +402,7 @@ class MochatChannel(BaseChannel):
             self._socket = client
             await client.connect(
                 socket_url, transports=["websocket"], socketio_path=socket_path,
-                auth={"token": self.config.claw_token},
+                auth={"token": self.config.claw_token.get_secret_value()},
                 wait_timeout=max(1.0, self.config.socket_connect_timeout_ms / 1000.0),
             )
             return True

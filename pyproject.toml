@@ -1,7 +1,7 @@
 [project]
 name = "hive-office-agents"
 version = "0.1.0"
-description = "Queen Agent — autonomous VPS management AI, built on nanobot"
+description = "Queen Agent — autonomous VPS management AI"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [

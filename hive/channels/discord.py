@@ -9,7 +9,7 @@ import httpx
 import websockets
 from loguru import logger
 
-from hive.bus.events import OutboundMessage
+from hive.bus.events import InboundMessage, OutboundMessage
 from hive.bus.queue import MessageBus
 from hive.channels.base import BaseChannel
 from hive.config.schema import DiscordConfig
@@ -32,10 +32,11 @@ class DiscordChannel(BaseChannel):
         self._heartbeat_task: asyncio.Task | None = None
         self._typing_tasks: dict[str, asyncio.Task] = {}
         self._http: httpx.AsyncClient | None = None
+        self._channel_names: dict[str, str] = {}
 
     async def start(self) -> None:
         """Start the Discord gateway connection."""
-        if not self.config.token:
+        if not self.config.token.get_secret_value():
             logger.error("Discord bot token not configured")
             return
 
@@ -85,7 +86,7 @@ class DiscordChannel(BaseChannel):
             payload["message_reference"] = {"message_id": msg.reply_to}
             payload["allowed_mentions"] = {"replied_user": False}
 
-        headers = {"Authorization": f"Bot {self.config.token}"}
+        headers = {"Authorization": f"Bot {self.config.token.get_secret_value()}"}
 
         try:
             for attempt in range(3):
@@ -153,7 +154,7 @@ class DiscordChannel(BaseChannel):
         identify = {
             "op": 2,
             "d": {
-                "token": self.config.token,
+                "token": self.config.token.get_secret_value(),
                 "intents": self.config.intents,
                 "properties": {
                     "os": "hive",
@@ -197,6 +198,12 @@ class DiscordChannel(BaseChannel):
         if not self.is_allowed(sender_id):
             return
 
+        # SB.2: resolve per-channel role (channel_routes overrides default role).
+        # Notification channels are outbound-only — drop inbound silently.
+        effective_role = self.config.channel_routes.get(channel_id, self.config.role)
+        if effective_role == "notification":
+            return
+
         content_parts = [content] if content else []
         media_paths: list[str] = []
         media_dir = Path.home() / ".hive" / "media"
@@ -226,17 +233,52 @@ class DiscordChannel(BaseChannel):
 
         await self._start_typing(channel_id)
 
-        await self._handle_message(
+        # Publish directly (not via _handle_message) so we can set the per-channel
+        # role from channel_routes without BaseChannel overwriting it with self.role.
+        metadata = {
+            "message_id": str(payload.get("id", "")),
+            "guild_id": payload.get("guild_id"),
+            "reply_to": reply_to,
+            "channel_role": effective_role,
+        }
+        
+        # Inject channel name if available
+        channel_name = await self._get_channel_name(channel_id)
+        if channel_name:
+            metadata["channel_name"] = channel_name
+
+        msg = InboundMessage(
+            channel=self.name,
             sender_id=sender_id,
             chat_id=channel_id,
             content="\n".join(p for p in content_parts if p) or "[empty message]",
             media=media_paths,
-            metadata={
-                "message_id": str(payload.get("id", "")),
-                "guild_id": payload.get("guild_id"),
-                "reply_to": reply_to,
-            },
+            metadata=metadata,
         )
+        await self.bus.publish_inbound(msg)
+
+    async def _get_channel_name(self, channel_id: str) -> str | None:
+        """Fetch and cache the Discord channel name."""
+        if channel_id in self._channel_names:
+            return self._channel_names[channel_id]
+            
+        if not self._http:
+            return None
+            
+        try:
+            url = f"{DISCORD_API_BASE}/channels/{channel_id}"
+            headers = {"Authorization": f"Bot {self.config.token.get_secret_value()}"}
+            resp = await self._http.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            name = data.get("name")
+            if name:
+                self._channel_names[channel_id] = name
+                return name
+        except Exception as e:
+            logger.debug(f"Failed to fetch channel name for {channel_id}: {e}")
+            
+        return None
 
     async def _start_typing(self, channel_id: str) -> None:
         """Start periodic typing indicator for a channel."""
@@ -244,7 +286,7 @@ class DiscordChannel(BaseChannel):
 
         async def typing_loop() -> None:
             url = f"{DISCORD_API_BASE}/channels/{channel_id}/typing"
-            headers = {"Authorization": f"Bot {self.config.token}"}
+            headers = {"Authorization": f"Bot {self.config.token.get_secret_value()}"}
             while self._running:
                 try:
                     await self._http.post(url, headers=headers)

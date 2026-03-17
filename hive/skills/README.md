@@ -1,6 +1,6 @@
-# nanobot Skills
+# Hive Skills
 
-This directory contains built-in skills that extend nanobot's capabilities.
+This directory contains built-in skills that extend the Hive Queen's capabilities.
 
 ## Skill Format
 

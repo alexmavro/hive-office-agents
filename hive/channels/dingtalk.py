@@ -33,10 +33,10 @@ except ImportError:
     ChatbotMessage = None  # type: ignore[assignment,misc]
 
 
-class NanobotDingTalkHandler(CallbackHandler):
+class HiveDingTalkHandler(CallbackHandler):
     """
-    Standard DingTalk Stream SDK Callback Handler.
-    Parses incoming messages and forwards them to the Nanobot channel.
+    Handle DingTalk Callback webhook calls safely.
+    Parses incoming messages and forwards them to the Hive channel.
     """
 
     def __init__(self, channel: "DingTalkChannel"):
@@ -66,8 +66,8 @@ class NanobotDingTalkHandler(CallbackHandler):
             sender_name = chatbot_msg.sender_nick or "Unknown"
 
             logger.info(f"Received DingTalk message from {sender_name} ({sender_id}): {content}")
-
-            # Forward to Nanobot via _on_message (non-blocking).
+            # Process plain text message
+            # Forward to Hive via _on_message (non-blocking).
             # Store reference to prevent GC before task completes.
             task = asyncio.create_task(
                 self.channel._on_message(content, sender_id, sender_name)
@@ -118,7 +118,7 @@ class DingTalkChannel(BaseChannel):
                 )
                 return
 
-            if not self.config.client_id or not self.config.client_secret:
+            if not self.config.client_id or not self.config.client_secret.get_secret_value():
                 logger.error("DingTalk client_id and client_secret not configured")
                 return
 
@@ -128,11 +128,11 @@ class DingTalkChannel(BaseChannel):
             logger.info(
                 f"Initializing DingTalk Stream Client with Client ID: {self.config.client_id}..."
             )
-            credential = Credential(self.config.client_id, self.config.client_secret)
+            credential = Credential(self.config.client_id, self.config.client_secret.get_secret_value())
             self._client = DingTalkStreamClient(credential)
 
             # Register standard handler
-            handler = NanobotDingTalkHandler(self)
+            handler = HiveDingTalkHandler(self)
             self._client.register_callback_handler(ChatbotMessage.TOPIC, handler)
 
             logger.info("DingTalk bot started with Stream Mode")
@@ -170,7 +170,7 @@ class DingTalkChannel(BaseChannel):
         url = "https://api.dingtalk.com/v1.0/oauth2/accessToken"
         data = {
             "appKey": self.config.client_id,
-            "appSecret": self.config.client_secret,
+            "appSecret": self.config.client_secret.get_secret_value(),
         }
 
         if not self._http:
@@ -207,7 +207,7 @@ class DingTalkChannel(BaseChannel):
             "msgKey": "sampleMarkdown",
             "msgParam": json.dumps({
                 "text": msg.content,
-                "title": "Nanobot Reply",
+                "title": "Hive Reply",
             }),
         }
 
@@ -225,7 +225,7 @@ class DingTalkChannel(BaseChannel):
             logger.error(f"Error sending DingTalk message: {e}")
 
     async def _on_message(self, content: str, sender_id: str, sender_name: str) -> None:
-        """Handle incoming message (called by NanobotDingTalkHandler).
+        """Handle incoming message (called by HiveDingTalkHandler).
 
         Delegates to BaseChannel._handle_message() which enforces allow_from
         permission checks before publishing to the bus.

@@ -6,6 +6,7 @@ import os
 import re
 from typing import Any
 from urllib.parse import urlparse
+from ipaddress import ip_address, ip_network, AddressValueError
 
 import httpx
 
@@ -14,6 +15,33 @@ from hive.agent.tools.base import Tool
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
 MAX_REDIRECTS = 5  # Limit redirects to prevent DoS attacks
+
+_BLOCKED_NETWORKS = [
+    ip_network("0.0.0.0/8"),
+    ip_network("127.0.0.0/8"),
+    ip_network("10.0.0.0/8"),
+    ip_network("172.16.0.0/12"),
+    ip_network("192.168.0.0/16"),
+    ip_network("169.254.0.0/16"),   # link-local + AWS/GCP metadata endpoint
+    ip_network("::1/128"),
+    ip_network("fc00::/7"),
+    ip_network("::/128"),           # IPv6 unspecified address (equivalent to 0.0.0.0)
+]
+
+def _is_private_host(host: str) -> bool:
+    try:
+        # Strip brackets if IPv6
+        clean_host = host.strip("[]")
+        ip = ip_address(clean_host)
+        
+        # If it's an IPv4-mapped IPv6 address, evaluate the underlying IPv4
+        # e.g., ::ffff:127.0.0.1 -> 127.0.0.1
+        if ip.version == 6 and getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped
+            
+        return any(ip in net for net in _BLOCKED_NETWORKS)
+    except (AddressValueError, ValueError):
+        return False   # hostname — apply same check after request resolves
 
 
 def _strip_tags(text: str) -> str:
@@ -38,6 +66,8 @@ def _validate_url(url: str) -> tuple[bool, str]:
             return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
         if not p.netloc:
             return False, "Missing domain"
+        if _is_private_host(p.hostname or ""):
+            return False, "Fetching private/internal hosts is not permitted"
         return True, ""
     except Exception as e:
         return False, str(e)
@@ -126,6 +156,11 @@ class WebFetchTool(Tool):
             ) as client:
                 r = await client.get(url, headers={"User-Agent": USER_AGENT})
                 r.raise_for_status()
+
+            # Block redirect chains that resolve to private hosts
+            final_host = urlparse(str(r.url)).hostname or ""
+            if _is_private_host(final_host):
+                return json.dumps({"error": "Redirect to private host blocked", "url": url})
             
             ctype = r.headers.get("content-type", "")
             

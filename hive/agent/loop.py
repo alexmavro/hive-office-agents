@@ -16,24 +16,27 @@ from hive.bus.queue import MessageBus
 from hive.providers.base import LLMProvider
 from hive.agent.context import ContextBuilder
 from hive.agent.tools.registry import ToolRegistry
+from hive.agent.budget import BudgetTracker
 from hive.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from hive.agent.tools.shell import ExecTool
 from hive.agent.tools.web import WebSearchTool, WebFetchTool
 from hive.agent.tools.message import MessageTool
-from hive.agent.tools.spawn import SpawnTool
+from hive.agent.tools.worker_tools import SpawnTool, SpawnPipelineTool, WorkersListTool
 from hive.agent.tools.cron import CronTool
 from hive.agent.tools.report_task import ReportTaskTool
 from hive.agent.tools.docker_exec import DockerExecTool
+from hive.agent.tools.session_approve import SessionApproveTool
+from hive.agent.tools.forge import SkillForgeTool
 from hive.agent.memory import MemoryStore, initialize_memory_hierarchy
 from hive.agent.consolidation import detect_signal, consolidate
 from hive.agent.onboarding import OnboardingFlow, get_document_intake_prompt, get_link_intake_prompt
 from hive.agent.admin import factory_reset, CONFIRM_PHRASE
-from hive.agent.subagent import SubagentManager
 from hive.session.dag import MessageEntry
 from hive.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from hive.audit import AuditLogger
+    from hive.bus.emitter import EventEmitter
 
 # Simple prompt-injection signal patterns — matched on raw inbound content.
 # We do NOT store the content; we only flag its presence in the audit log.
@@ -68,6 +71,7 @@ class AgentLoop:
         provider: LLMProvider,
         workspace: Path,
         model: str | None = None,
+        fallbacks: list[str] | None = None,
         max_iterations: int = 20,
         temperature: float = 0.7,
         max_tokens: int = 4096,
@@ -79,13 +83,19 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         audit: "AuditLogger | None" = None,
+        worker_registry: "WorkerRegistry | None" = None,
+        daily_usd_budget: float = 10.0,
+        worker_usd_limit: float = 0.50,
+        emitter: "EventEmitter | None" = None,
     ):
         from hive.config.schema import ExecToolConfig
         from hive.cron.service import CronService
+        from hive.agent.worker.registry import WorkerRegistry
         self.bus = bus
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
+        self.fallbacks = fallbacks or []
         self.max_iterations = max_iterations
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -95,6 +105,7 @@ class AgentLoop:
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self._audit = audit
+        self._emitter = emitter
 
         # Initialise memory/ hierarchy from templates on first boot (idempotent)
         _templates_dir = Path(__file__).parent.parent.parent / "templates" / "memory"
@@ -102,23 +113,22 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
-        self.tools = ToolRegistry(audit=audit)
-        self.subagents = SubagentManager(
-            provider=provider,
-            workspace=workspace,
-            bus=bus,
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            brave_api_key=brave_api_key,
-            exec_config=self.exec_config,
-            restrict_to_workspace=restrict_to_workspace,
-        )
+        self.tools = ToolRegistry(audit=audit, workspace=workspace, emitter=emitter)
+        self.worker_registry = worker_registry
+        
+        self.budget_tracker = BudgetTracker(workspace, daily_limit=daily_usd_budget, emitter=emitter)
+        self.worker_usd_limit = worker_usd_limit
         
         self._running = False
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
+
+        # Known chats: persisted (channel → chat_id) mapping so Queen can reach
+        # the user proactively even after a gateway restart.  Updated on every
+        # inbound message; injected into the system prompt as notification targets.
+        self._known_chats: dict[str, str] = self._load_known_chats()
+
         self._register_default_tools()
     
     def _register_default_tools(self) -> None:
@@ -145,9 +155,23 @@ class AgentLoop:
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
         self.tools.register(message_tool)
         
-        # Spawn tool (for subagents)
-        spawn_tool = SpawnTool(manager=self.subagents)
-        self.tools.register(spawn_tool)
+        # Worker Management Tools
+        if self.worker_registry:
+            self.worker_registry.bind_loop_context(
+                bus=self.bus,
+                provider=self.provider,
+                workspace=self.workspace,
+                model=self.model,
+                fallbacks=self.fallbacks,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                audit=self._audit,
+                daily_usd_budget=self.budget_tracker.daily_limit,
+                worker_usd_limit=self.worker_usd_limit
+            )
+            self.tools.register(SpawnTool(worker_registry=self.worker_registry))
+            self.tools.register(SpawnPipelineTool(worker_registry=self.worker_registry))
+            self.tools.register(WorkersListTool(worker_registry=self.worker_registry))
         
         # Cron tool (for scheduling)
         if self.cron_service:
@@ -155,6 +179,12 @@ class AgentLoop:
 
         # Signal tool — triggers memory consolidation on meaningful events
         self.tools.register(ReportTaskTool(consolidation_callback=self._handle_signal))
+
+        # SB.1: session pre-approval tool (Tier 2 — allows LLM to unlock Tier 1 after user consent)
+        self.tools.register(SessionApproveTool(registry=self.tools))
+
+        # S5: skill forge
+        self.tools.register(SkillForgeTool(workspace=self.workspace))
 
         # Docker sandbox — only if image is built
         if DockerExecTool.is_available():
@@ -175,8 +205,88 @@ class AgentLoop:
         await self._mcp_stack.__aenter__()
         await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
 
+    # ------------------------------------------------------------------
+    # Known-chats persistence (proactive notification targets)
+    # ------------------------------------------------------------------
+
+    @property
+    def _known_chats_path(self) -> Path:
+        return self.workspace / ".known_chats.json"
+
+    def _load_known_chats(self) -> dict[str, str]:
+        """Load persisted (channel → chat_id) notification targets from disk."""
+        path = self._known_chats_path
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return {str(k): str(v) for k, v in data.items()}
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def _save_known_chat(self, channel: str, chat_id: str) -> None:
+        """Persist a (channel, chat_id) pair to disk. Silently ignores write errors."""
+        self._known_chats[channel] = chat_id
+        try:
+            self._known_chats_path.write_text(
+                json.dumps(self._known_chats, indent=2), encoding="utf-8"
+            )
+        except OSError as e:
+            logger.debug(f"Could not persist known_chats: {e}")
+
+    # SB.2 valid categories (mirrors session_approve.py)
+    _APPROVAL_CATEGORIES = {"exec", "write", "git", "packages", "spawn"}
+
+    def _handle_admin_approval(self, content: str) -> str | None:
+        """Parse and execute admin-channel approval commands.
+
+        Recognises "APPROVE <category>" (case-insensitive) and calls
+        self.tools.pre_approve(category) directly — no LLM in the loop.
+        Also recognises "APPROVE ALL" to unlock every category at once.
+
+        Returns:
+            A confirmation string to send back to the admin channel, or
+            None if the message is not an approval command (pass to LLM).
+        """
+        stripped = content.strip()
+        # Must match: APPROVE <token> — anything else is not an approval command
+        upper = stripped.upper()
+        if not upper.startswith("APPROVE "):
+            return None
+
+        token = stripped[len("APPROVE "):].strip().lower()
+
+        if token == "all":
+            for cat in self._APPROVAL_CATEGORIES:
+                self.tools.pre_approve(cat)
+            logger.info("Admin channel: pre-approved ALL categories for this session")
+            return (
+                "Session approval granted: ALL categories (exec, write, git, packages, spawn) "
+                "are now unlocked for the remainder of this gateway session."
+            )
+
+        if token in self._APPROVAL_CATEGORIES:
+            self.tools.pre_approve(token)
+            logger.info(f"Admin channel: pre-approved category '{token}' for this session")
+            return (
+                f"Session approval granted: '{token}' category is now unlocked "
+                f"for the remainder of this gateway session."
+            )
+
+        # Unknown token — tell the admin but don't pass to LLM
+        valid = ", ".join(sorted(self._APPROVAL_CATEGORIES))
+        return (
+            f"Unknown approval category: '{token}'. "
+            f"Valid categories: {valid}, all."
+        )
+
     def _set_tool_context(self, channel: str, chat_id: str) -> None:
-        """Update context for all tools that need routing info."""
+        """Update context for all tools that need per-message routing info.
+
+        Called before every agent loop run to ensure tool callbacks (message,
+        spawn, cron, pipeline) route results to the correct channel/chat_id.
+        """
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.set_context(channel, chat_id)
@@ -185,9 +295,16 @@ class AgentLoop:
             if isinstance(spawn_tool, SpawnTool):
                 spawn_tool.set_context(channel, chat_id)
 
+        # SpawnPipelineTool also stores channel/chat_id for all start/fail/complete
+        # bus messages it publishes during the background orchestration coroutine.
+        if pipeline_tool := self.tools.get("spawn_pipeline"):
+            if isinstance(pipeline_tool, SpawnPipelineTool):
+                pipeline_tool.set_context(channel, chat_id)
+
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
+
 
     async def _run_agent_loop(self, initial_messages: list[dict]) -> tuple[str | None, list[str]]:
         """
@@ -204,6 +321,9 @@ class AgentLoop:
         final_content = None
         tools_used: list[str] = []
 
+        from hive.agent.circuit_breaker import CircuitBreaker
+        breaker = CircuitBreaker()
+
         while iteration < self.max_iterations:
             iteration += 1
 
@@ -211,33 +331,82 @@ class AgentLoop:
             _llm_error: str | None = None
             _llm_usage: dict = {}
             _llm_tool_calls: list = []
+            _llm_cost_usd: float = 0.0
+            
+            # Sub-agent (worker) routing
+            w_id = self.tools._session_id if self.tools._session_id and "worker:" in self.tools._session_id else None
+            w_limit = self.worker_usd_limit if w_id else None
+            is_ok, budget_reason = await self.budget_tracker.check_budget(worker_id=w_id, worker_limit=w_limit)
+            if not is_ok:
+                logger.warning(f"Budget Halt: {budget_reason}")
+                final_content = f"**[SYSTEM HALT: Budget Exceeded]**\n{budget_reason}\nExecution stopped to prevent cost overruns."
+                break
+
             try:
                 response = await self.provider.chat(
                     messages=messages,
                     tools=self.tools.get_definitions(),
                     model=self.model,
+                    fallbacks=self.fallbacks,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                 )
                 _llm_usage = response.usage or {}
                 _llm_tool_calls = response.tool_calls
+                _llm_cost_usd = getattr(response, "cost_usd", 0.0)
+                
+                if isinstance(_llm_cost_usd, (int, float)) and _llm_cost_usd > 0:
+                    daily_before, _ = await self.budget_tracker.get_usage()
+                    await self.budget_tracker.add_cost(w_id, float(_llm_cost_usd))
+                    daily_after, _ = await self.budget_tracker.get_usage()
+                    
+                    limit = self.budget_tracker.daily_limit
+                    for threshold, label in [(0.75, "75%"), (0.90, "90%"), (1.0, "100%")]:
+                        if daily_before < limit * threshold <= daily_after:
+                            alert = f"⚠️ **BUDGET ALERT:** System has crossed {label} of daily limit (${daily_after:.2f} / ${limit:.2f} USD)."
+                            logger.warning(alert)
+                            # Emit structural network alert
+                            from hive.bus.events import OutboundMessage
+                            await self.bus.publish_outbound(OutboundMessage(
+                                channel="notification",
+                                chat_id="global",
+                                content=alert
+                            ))
+                            break
             except Exception as _exc:
                 _llm_error = str(_exc)[:200]
                 raise
             finally:
+                _duration_ms = (time.monotonic() - _t0_llm) * 1000
+                _tool_names = [tc.name for tc in _llm_tool_calls] if _llm_tool_calls else None
                 if self._audit:
-                    _duration_ms = (time.monotonic() - _t0_llm) * 1000
-                    _tool_names = [tc.name for tc in _llm_tool_calls] if _llm_tool_calls else None
                     await self._audit.log_llm_call(
                         model=self.model,
                         tokens_in=_llm_usage.get("prompt_tokens", 0),
                         tokens_out=_llm_usage.get("completion_tokens", 0),
                         tool_calls_n=len(_llm_tool_calls),
                         duration_ms=_duration_ms,
+                        cost_usd=_llm_cost_usd,
                         tool_names=_tool_names,
                         session_id=self.tools._session_id,
                         error=_llm_error,
                     )
+                # S7: Emit llm_call event to the emission stream
+                if self._emitter:
+                    from hive.bus.emitter import HiveEvent
+                    await self._emitter.emit(HiveEvent(
+                        type="llm_call",
+                        data={
+                            "model": self.model,
+                            "tokens_in": _llm_usage.get("prompt_tokens", 0),
+                            "tokens_out": _llm_usage.get("completion_tokens", 0),
+                            "tool_calls_n": len(_llm_tool_calls),
+                            "duration_ms": round(_duration_ms, 1),
+                            "cost_usd": _llm_cost_usd,
+                            "tool_names": _tool_names,
+                            "error": _llm_error,
+                        },
+                    ))
 
             if response.has_tool_calls:
                 tool_call_dicts = [
@@ -257,10 +426,23 @@ class AgentLoop:
                 )
 
                 for tool_call in response.tool_calls:
+                    is_ok, reason = breaker.check_action(tool_call.name, tool_call.arguments)
+                    if not is_ok:
+                        logger.warning(reason)
+                        final_content = f"**[SYSTEM HALT: CIRCUIT BREAKER]**\n{reason}\nExecution stopped to prevent infinite loops."
+                        return final_content, tools_used
+
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    
+                    is_ok, reason = breaker.check_result(result)
+                    if not is_ok:
+                        logger.warning(reason)
+                        final_content = f"**[SYSTEM HALT: CIRCUIT BREAKER]**\n{reason}\nExecution stopped to prevent infinite error loops."
+                        return final_content, tools_used
+                        
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -331,6 +513,7 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         self.tools._session_id = key
+        self.tools._channel_role = msg.metadata.get("channel_role", "user")
         if self._audit:
             injection_signal = bool(_INJECTION_PATTERNS.search(msg.content))
             await self._audit.log_channel_event(
@@ -343,8 +526,90 @@ class AgentLoop:
 
         session = self.sessions.get_or_create(key)
         
+        is_new_project = False
+        if "session_project" not in session.metadata:
+            # Use channel_name (e.g. from Discord) if provided, otherwise fallback to chat_id
+            c_name = msg.metadata.get("channel_name")
+            if c_name:
+                import re as _re
+                safe_name = _re.sub(r"[^\w\s-]", "", c_name).strip()
+                safe_name = _re.sub(r"[\s-]+", "_", safe_name) or "default"
+                session_project = f"{msg.channel}_{safe_name}"
+            else:
+                session_project = f"ch_{msg.channel}_{msg.chat_id}"
+                
+            session.metadata["session_project"] = session_project
+            is_new_project = True
+        
+        session_project = session.metadata["session_project"]
+        project_dir = self.workspace / "memory" / "projects" / session_project
+        if not project_dir.exists():
+            is_new_project = True
+            project_dir.mkdir(parents=True, exist_ok=True)
+            
+        onboarding_sys_prompt = ""
+        if is_new_project or session.message_count == 0:
+            onboarding_sys_prompt = (
+                "\n\n[SYSTEM: You have just been initialized within a new Project Workspace called "
+                f"'{session_project}'. While your Core Identity (SOUL.md) remains constant, this specific "
+                "Workspace has a distinct, pristine 'Project Memory' separate from your global identity. "
+                "This is a blank slate for this specific environment. Actively inquire about your "
+                "specific role, the mission objectives, and any workspace-specific constraints. "
+                "You will need to build and structure this Project Memory from scratch based on the "
+                "user's guidance, ensuring that project-specific knowledge stays organized here.]"
+            )
+
+
+        # SB.3: Session resumption tracking
+        if hasattr(self, "_seen_sessions") is False:
+            self._seen_sessions = set()
+            
+        is_resumed_session = False
+        if key not in self._seen_sessions:
+            self._seen_sessions.add(key)
+            if session.message_count > 0:
+                is_resumed_session = True
+
+        # Persist this channel's chat_id so Queen can reach it proactively
+        # after a gateway restart (stored in .known_chats.json in the workspace).
+        self._save_known_chat(msg.channel, msg.chat_id)
+
+        # SB.2: admin-channel approval commands bypass the LLM entirely.
+        # Only messages arriving through a channel with role="admin" are trusted here.
+        # Pattern: "APPROVE <category>" — grants session-level pre-approval for that category.
+        if msg.metadata.get("channel_role") == "admin":
+            approval_response = self._handle_admin_approval(msg.content)
+            if approval_response is not None:
+                return OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=approval_response,
+                )
+
         # Handle slash commands
         cmd = msg.content.strip().lower()
+        if cmd.startswith("/project"):
+            if msg.metadata.get("channel_role") != "admin":
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Error: Only administrators can switch project contexts via the `/project` command.")
+            
+            parts = msg.content.strip().split(maxsplit=1)
+            if len(parts) == 1:
+                current = session.metadata.get("session_project", "none")
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content=f"Current active project: {current}\nUse `/project <name>` to switch.")
+            
+            import re as _re
+            new_project = parts[1].strip()
+            new_project = _re.sub(r"[^\w\s-]", "", new_project).strip()
+            new_project = _re.sub(r"[\s-]+", "_", new_project) or "default"
+            
+            session.metadata["session_project"] = new_project
+            self.sessions.save(session)
+            (self.workspace / "memory" / "projects" / new_project).mkdir(parents=True, exist_ok=True)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                  content=f"Switched session project to: {new_project}")
+
         if cmd == "/new":
             # Snapshot the current dag before clearing (clear() creates a fresh in-memory dag)
             old_dag = session._dag
@@ -367,7 +632,7 @@ class AgentLoop:
                                   content="Session deleted. Fresh start — no history, no consolidation.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐝 hive commands:\n/new — New conversation (saves memory)\n/reset — Hard reset (deletes session entirely)\n/onboard — Set up your profile\n/help — Show this")
+                                  content="🐝 hive commands:\n/new — New conversation (saves memory)\n/reset — Hard reset (deletes session entirely)\n/onboard — Set up your profile\n/project <name> — Switch active project context\n/help — Show this")
 
         # Onboarding: /onboard triggers an LLM-driven intake interview.
         # The mission prompt is injected as the "current message" so the Queen
@@ -426,6 +691,36 @@ class AgentLoop:
             self.sessions.save(fresh_session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=result)
 
+        if cmd in ("/emergency-stop", "/emergency_stop"):
+            if msg.metadata.get("channel_role") != "admin":
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Error: Only administrators can trigger an emergency stop.")
+            
+            if self.worker_registry:
+                count = self.worker_registry.get_active_count()
+                for name in list(self.worker_registry._active_tasks.keys()):
+                    self.worker_registry.cancel_worker(name)
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content=f"🚨 **[EMERGENCY STOP EXECUTED]** 🚨\nForcefully terminated {count} background workers.")
+            else:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="Worker registry is offline; no active workers to stop.")
+
+        if cmd in ("/budget-status", "/budget_status", "/cost-report", "/cost_report"):
+            if hasattr(self, "budget_tracker"):
+                daily, _ = await self.budget_tracker.get_usage()
+                content = (
+                    "💸 **Live Budget Report** 💸\n"
+                    f"- **Spent Today**: `${daily:.4f}` USD\n"
+                    f"- **Daily Limit**: `${self.budget_tracker.daily_limit:.4f}` USD\n"
+                    f"- **Utilization**: `{(daily/self.budget_tracker.daily_limit)*100:.1f}%`"
+                )
+                if self.worker_registry:
+                    content += f"\n- **Active Workers**: `{self.worker_registry.get_active_count()}`"
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=content)
+            else:
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content="Budget tracking is offline.")
+
         # Proactive compaction: keep context bounded and memory files current.
         # Fire when session exceeds memory_window AND at least memory_window // 2
         # new messages have arrived since the last compaction — prevents
@@ -470,6 +765,17 @@ class AgentLoop:
         else:
             current_message = msg.content
 
+        # SB.3: Inject warning if resuming a session with history after a gateway restart
+        if is_resumed_session:
+            warning = (
+                "[SYSTEM SECURITY OVERRIDE: Gateway restarted. You are resuming an existing session.\n"
+                "If there were unfinished tasks or pending tool calls before the restart, "
+                "DO NOT resume them automatically. You MUST explain what you were doing and ask the user "
+                "'Shall I continue with...' before calling any tools.\n"
+                "New message:]\n\n"
+            )
+            current_message = warning + str(current_message)
+
         self._set_tool_context(msg.channel, msg.chat_id)
         initial_messages = self.context.build_messages(
             history=session.get_history(max_messages=self.memory_window),
@@ -477,6 +783,8 @@ class AgentLoop:
             media=msg.media if msg.media else None,
             channel=msg.channel,
             chat_id=msg.chat_id,
+            notification_targets=self._known_chats if self._known_chats else None,
+            session_project=session_project,
         )
         final_content, tools_used = await self._run_agent_loop(initial_messages)
 
@@ -490,6 +798,9 @@ class AgentLoop:
         session.add_message("assistant", final_content,
                             tools_used=tools_used if tools_used else None)
         self.sessions.save(session)
+        
+        # SB.1: Scope approvals to a single plan/turn by wiping them once we finish processing
+        self.tools.clear_approvals()
 
         if self._audit:
             await self._audit.log_channel_event(
@@ -508,7 +819,7 @@ class AgentLoop:
     
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
         """
-        Process a system message (e.g., subagent announce).
+        Process a system message (e.g., worker status announce).
         
         The chat_id field contains "original_channel:original_chat_id" to route
         the response back to the correct destination.
@@ -533,6 +844,7 @@ class AgentLoop:
             current_message=msg.content,
             channel=origin_channel,
             chat_id=origin_chat_id,
+            session_project=session.metadata.get("session_project"),
         )
         final_content, _ = await self._run_agent_loop(initial_messages)
 
@@ -542,6 +854,8 @@ class AgentLoop:
         session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
         session.add_message("assistant", final_content)
         self.sessions.save(session)
+        
+        self.tools.clear_approvals()
         
         return OutboundMessage(
             channel=origin_channel,
@@ -609,6 +923,7 @@ Respond with ONLY valid JSON, no markdown fences."""
                     {"role": "user", "content": prompt},
                 ],
                 model=self.model,
+                fallbacks=self.fallbacks,
             )
             text = (response.content or "").strip()
             if not text:
@@ -663,6 +978,7 @@ Respond with ONLY valid JSON, no markdown fences."""
                 memory_dir=memory_dir,
                 provider=self.provider,
                 model=self.model,
+                fallbacks=self.fallbacks,
                 session=session,
             )
         )
